@@ -1,0 +1,105 @@
+name: trollnet
+
+# Shared settings for the .NET services.
+x-dotnet-service: &dotnet-service
+  restart: unless-stopped
+  networks: [backend]
+  depends_on:
+    postgres:
+      condition: service_healthy
+
+# VULN-SPOT #16: Hard-coded Credentials (CWE-798)
+#   Typical mistake: secrets written directly into compose files, appsettings.json or source code and committed.
+#   Here: secrets come from .env (git-ignored). The ":?" syntax refuses to start if one is missing.
+x-jwt-env: &jwt-env
+  Jwt__Secret: ${JWT_SECRET:?Set JWT_SECRET in .env (see .env.example)}
+  Jwt__Issuer: trollnet-auth
+  Jwt__Audience: trollnet
+
+services:
+  postgres:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-trollnet}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env (see .env.example)}
+      POSTGRES_DB: postgres
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    networks: [backend]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  auth-service:
+    <<: *dotnet-service
+    build:
+      context: .
+      dockerfile: src/Services/AuthService/Dockerfile
+    environment:
+      <<: *jwt-env
+      ConnectionStrings__AuthDb: Host=postgres;Port=5432;Database=trollnet_auth;Username=${POSTGRES_USER:-trollnet};Password=${POSTGRES_PASSWORD}
+      Seed__AdminUsername: ${ADMIN_USERNAME:-admin}
+      Seed__AdminPassword: ${ADMIN_PASSWORD:-}
+
+  social-service:
+    <<: *dotnet-service
+    build:
+      context: .
+      dockerfile: src/Services/SocialService/Dockerfile
+    environment:
+      <<: *jwt-env
+      ConnectionStrings__SocialDb: Host=postgres;Port=5432;Database=trollnet_social;Username=${POSTGRES_USER:-trollnet};Password=${POSTGRES_PASSWORD}
+      InternalApi__Key: ${INTERNAL_API_KEY:?Set INTERNAL_API_KEY in .env (see .env.example)}
+
+  game-service:
+    <<: *dotnet-service
+    build:
+      context: .
+      dockerfile: src/Services/GameService/Dockerfile
+    environment:
+      <<: *jwt-env
+      ConnectionStrings__GameDb: Host=postgres;Port=5432;Database=trollnet_game;Username=${POSTGRES_USER:-trollnet};Password=${POSTGRES_PASSWORD}
+      InternalApi__Key: ${INTERNAL_API_KEY:?Set INTERNAL_API_KEY in .env (see .env.example)}
+      Services__Social: http://social-service:8080/
+      GameEngine__TickSeconds: ${GAME_TICK_SECONDS:-60}
+      GameEngine__ObjectiveLifetimeMinutes: ${GAME_OBJECTIVE_LIFETIME_MINUTES:-10}
+      GameEngine__MaxActiveObjectives: ${GAME_MAX_ACTIVE_OBJECTIVES:-3}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      social-service:
+        condition: service_started
+
+  gateway:
+    build:
+      context: .
+      dockerfile: src/Gateway/Dockerfile
+    restart: unless-stopped
+    networks: [frontend, backend]
+    depends_on:
+      - auth-service
+      - social-service
+      - game-service
+
+  frontend:
+    build:
+      context: ./frontend
+    restart: unless-stopped
+    networks: [frontend]
+    ports:
+      # Bound to localhost only. Change to "${FRONTEND_PORT}:8080" to expose on your LAN.
+      - "127.0.0.1:${FRONTEND_PORT:-8080}:8080"
+    depends_on:
+      - gateway
+
+networks:
+  frontend:
+  backend:
+    # No route to the outside world: only the gateway bridges into this network.
+    internal: true
+
+volumes:
+  pgdata:

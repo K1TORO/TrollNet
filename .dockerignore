@@ -1,0 +1,12 @@
+# Build context for the .NET services is the repository root.
+**/bin
+**/obj
+**/.vs
+.git
+.vscode
+.idea
+frontend
+*.md
+.env
+.env.*
+docker-compose*.yml

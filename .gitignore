@@ -1,0 +1,99 @@
+# ==============================
+# OS / Editor
+# ==============================
+.DS_Store
+Thumbs.db
+desktop.ini
+*.swp
+*~
+.idea/
+.vscode/*
+!.vscode/settings.json
+!.vscode/tasks.json
+!.vscode/launch.json
+!.vscode/extensions.json
+*.code-workspace
+
+# ==============================
+# ASP.NET Core / .NET
+# ==============================
+[Bb]in/
+[Oo]bj/
+[Dd]ebug/
+[Rr]elease/
+x64/
+x86/
+[Ll]og/
+[Ll]ogs/
+publish/
+out/
+artifacts/
+*.user
+*.suo
+*.userosscache
+*.sln.docstates
+*.userprefs
+.vs/
+*.rsuser
+*.cache
+*.pdb
+*.dbmdl
+*.jfm
+project.lock.json
+project.fragment.lock.json
+*.nupkg
+*.snupkg
+**/packages/*
+!**/packages/build/
+*.nuget.props
+*.nuget.targets
+TestResults/
+[Tt]est[Rr]esult*/
+coverage*.json
+coverage*.xml
+*.coverage
+*.coveragexml
+# Local secrets / overrides
+appsettings.*.local.json
+appsettings.Development.local.json
+secrets.json
+*.pfx
+*.p12
+
+# ==============================
+# React / Node frontend
+# ==============================
+node_modules/
+.pnp
+.pnp.js
+.yarn/*
+!.yarn/patches
+!.yarn/releases
+dist/
+build/
+.vite/
+.next/
+.cache/
+coverage/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+.eslintcache
+*.tsbuildinfo
+
+# ==============================
+# Environment files
+# ==============================
+.env
+.env.*
+!.env.example
+
+# ==============================
+# PostgreSQL / Docker
+# ==============================
+pgdata/
+postgres-data/
+*.dump
+*.backup
+docker-compose.override.yml

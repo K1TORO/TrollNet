@@ -1,0 +1,71 @@
+﻿Project Specification: Gamified Web Vulnerability Training Platform
+
+
+Name: TrollNet
+1. Project Overview
+The project is an interactive web application designed to train users in identifying and exploiting common web vulnerabilities. It simulates a social media environment where player assume the role of malicious actor. The objective is to exploit intentionally introduced vulnerabilities to achieve specific goals (e.g., data exfiltration, privilege escalation, content defacement) against AI-controlled moderators.
+2. Core Mechanics
+Objective-Based Gameplay: Players receive specific tasks (e.g., "Extract the hidden flag from Post #42", "Hijack the administrator's session").
+Event Constraints: Objectives must be completed within a specific timeframe or before a simulated moderator reviews the targeted content.
+State Management: A background service continuously generates new content (posts, comments) and manages the lifecycle of objectives.
+Scoring System: The system validates successful exploitation and awards points based on the complexity of the vulnerability.
+3. Target Vulnerabilities and Implementation Mapping
+The platform must include the following vulnerabilities, mapped to specific gameplay objectives:
+Cross-Site Scripting (XSS)
+Objective: Session hijacking or UI defacement.
+Implementation: Render user-generated content (comments, post descriptions) using raw HTML output without sanitization.
+SQL Injection (SQLi)
+Objective: Data exfiltration (reading hidden flags or other users' private data).
+Implementation: Use string concatenation or interpolation for search queries and filtering parameters instead of parameterized queries.
+Insecure Direct Object Reference (IDOR) / Broken Access Control
+Objective: Unauthorized modification or deletion of resources belonging to other users or admins.
+Implementation: Verify user authentication but omit ownership verification (e.g., checking if resource.OwnerId == currentUser.Id) in API endpoints.
+Cross-Site Request Forgery (CSRF)
+Objective: Force privileged bots (moderators) to execute unintended actions (e.g., banning a specific user, deleting a post).
+Implementation: Disable anti-forgery token validation on state-changing POST/PUT/DELETE endpoints.
+Path Traversal / Local File Inclusion (LFI)
+Objective: Read sensitive server files (e.g., configuration files, source code, local flags).
+Implementation: Pass user-supplied filenames directly to file reading functions without validating directory traversal sequences (e.g., ../).
+Server-Side Request Forgery (SSRF)
+Objective: Access internal network services or metadata endpoints.
+Implementation: Implement a "link preview" or "image fetch" feature that makes HTTP requests to user-provided URLs without restricting internal IP ranges or protocols.
+4. Technical Architecture
+Backend: ASP.NET Core Web API.
+Database: PostgreSQL.
+Frontend: Single Page Application (SPA) simulating a social media feed.
+Game Engine: An ASP.NET Core BackgroundService responsible for generating posts, tracking objective completion, and handling timers.
+5. Implementation Instructions
+Step 1: Database Design
+Create the PostgreSQL database schema. Required tables include:
+Users (Id, Username, PasswordHash, Role, SessionToken)
+Posts (Id, AuthorId, Content, IsTrending, HiddenFlag)
+Comments (Id, PostId, AuthorId, Content)
+Objectives (Id, Description, TargetPostId, TargetUserId, IsCompleted)
+Scores (UserId, Points)
+Step 2: Backend Initialization
+Initialize an ASP.NET Core Web API project.
+Configure the PostgreSQL connection string in appsettings.json.
+Implement Entity Framework Core or Dapper for data access.
+Create the database and apply migrations.
+Step 3: Vulnerable API Development
+Develop the API controllers. Intentionally implement the vulnerabilities defined in Section 3.
+Example for IDOR: Create a DELETE /api/posts/{id} endpoint that checks [Authorize] but does not verify if the authenticated user owns the post.
+Example for SQLi: Create a GET /api/posts/search?query={text} endpoint that builds the SQL query using $"SELECT * FROM Posts WHERE Content LIKE '%{text}%'".
+Step 4: Game Engine Development
+Implement a BackgroundService in ASP.NET Core:
+Write a loop that runs every N minutes.
+Generate a new "Trending Post" with a unique HiddenFlag.
+Create a corresponding Objective in the database.
+Remove expired posts and objectives based on time limits.
+Step 5: Frontend Development
+Build the UI to resemble a standard social media platform.
+Implement forms for posting, commenting, and searching.
+Ensure the frontend correctly renders the raw HTML (for XSS) and passes user input directly to the vulnerable API endpoints.
+Step 6: Validation and Scoring
+Create an endpoint to submit completed objectives (e.g., submitting a stolen flag).
+Implement logic to verify the submitted flag against the database.
+Update the user's score upon successful verification.
+Step 7: Testing and Deployment
+Test each vulnerability to ensure it is exploitable using standard tools (e.g., browser DevTools, Burp Suite).
+Verify that the background service correctly manages the game state.
+Deploy the application to a local or cloud environment for user testing.

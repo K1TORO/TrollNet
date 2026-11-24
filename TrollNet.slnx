@@ -1,0 +1,13 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/Gateway/Gateway.csproj" />
+  </Folder>
+  <Folder Name="/src/Services/">
+    <Project Path="src/Services/AuthService/AuthService.csproj" />
+    <Project Path="src/Services/GameService/GameService.csproj" />
+    <Project Path="src/Services/SocialService/SocialService.csproj" />
+  </Folder>
+  <Folder Name="/src/Shared/">
+    <Project Path="src/Shared/TrollNet.Shared/TrollNet.Shared.csproj" />
+  </Folder>
+</Solution>
