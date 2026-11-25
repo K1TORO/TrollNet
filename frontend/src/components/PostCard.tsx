@@ -88,11 +88,11 @@ export function PostCard({ post, onDeleted, initiallyExpanded = false }: Props) 
     <article className="post">
       <header className="post-header">
         <span>
-          <strong>@{post.authorName}</strong>{' '}
-          <span className="muted small">
+          Posted by <strong>{post.authorName}</strong>{' '}
+          <span className="small">
             · {formatRelative(post.createdAt)} · #{post.id}
           </span>
-          {post.isTrending && <span className="accent-text small"> · trending</span>}
+          {post.isTrending && <span className="hot-tag">HOT</span>}
         </span>
         {canModify(post.authorId) && (
           <button className="link danger small" onClick={deletePost} aria-label="Delete post">
