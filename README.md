@@ -32,7 +32,7 @@ A gamified social network for learning web security. Trending posts appear in th
 | **gateway** | Single entry point; routes `/api/*` to services | — |
 | **frontend** | React SPA served by nginx, proxies `/api` to the gateway | — |
 
-Each service owns its own database. Services validate the same JWT (shared secret), so no service needs to call another one to check who a user is. The game engine publishes trending posts through the social service's `/internal/*` API, which requires an internal key and is never routed by the gateway.
+Each service owns its own database. Services validate the same JWT (shared secret), so no service needs to call another one to check who a user is. The game engine publishes trending posts through the social service's `/internal/*` API. In a hardened build that API would require the `X-Internal-Key` header and never be routed by the gateway — but both protections are intentionally removed here (VULN-SPOT #08): the key is no longer checked and the gateway routes `/internal/posts/*` publicly. (The game service's own `/internal/vault/*` is *not* gateway-routed, so it stays reachable only via the SSRF endpoint, #06.)
 
 ## Quick start (Docker)
 
@@ -42,9 +42,11 @@ Prerequisite: Docker Desktop running.
 docker compose up --build   # secrets are intentionally hard-coded; see VULN-SPOT #16
 ```
 
-Open http://localhost:8080. There's no sign-in: each browser automatically gets a guest player with a random name such as `troll_48213`. The token is stored in the browser for 30 days (`Jwt__GuestExpiryMinutes`), so each player keeps their name and score between visits. Clearing site data gives you a new player. The first objective appears within a minute (see `GAME_TICK_SECONDS`).
+Open http://localhost:8080. No sign-in is required: each browser automatically gets a guest player with a random name such as `troll_48213`. The token is stored in the browser for 30 days (`Jwt__GuestExpiryMinutes`), so each player keeps their name and score between visits. Clearing site data gives you a new player. The first objective appears within a minute (see `GAME_TICK_SECONDS`).
 
-An admin (teacher) account is seeded as `admin` / `admin1234` (VULN-SPOT #16). The UI has no login for it, so use the API: `POST /api/auth/login` returns a token. Admins can call `GET /api/objectives/{id}/flag` to test the scoring flow — although the public objectives list now leaks every flag (VULN-SPOT #15).
+**Capturing flags.** Each objective's flag can only be obtained by exploiting *that objective's own vulnerability* — the flags are no longer handed out. The one exception is the data-exposure objective (VULN-SPOT #15), whose lesson is that its flag still leaks from `GET /api/objectives`. Every objective card shows a **How to capture** hint with a **Run in terminal** button that loads the exact command into the built-in terminal (docked to the side of the page).
+
+**Admin (teacher) account.** Seeded as `admin` / `admin1234` (VULN-SPOT #16). Use the top-bar **Sign in** control to log in (or `POST /api/auth/login`); signing out returns you to your previous guest. As admin you can call `GET /api/objectives/{id}/flag` (keyed by **objective** id, not post id) to reveal any flag — the hard-coded credentials are themselves the lesson.
 
 Stop and remove everything, including the database volume:
 
@@ -85,15 +87,20 @@ Each service creates its own database on startup with `EnsureCreated`. Switch to
 | GET | `/api/posts/trending` | — | Trending posts |
 | GET | `/api/posts/search?query=` | — | Case-insensitive text search |
 | GET | `/api/posts/{id}` | — | Post with comments |
-| POST | `/api/posts` | user | `{content}` |
+| GET | `/api/posts/{id}/note` | — | "Private" post note (IDOR, #03) |
+| POST | `/api/posts` | user | `{content}` (extra fields accepted — mass assignment, #04) |
 | DELETE | `/api/posts/{id}` | owner / moderator | |
 | POST | `/api/posts/{id}/comments` | user | `{content}` |
 | DELETE | `/api/comments/{id}` | owner / moderator | |
-| GET | `/api/objectives` | — | Active and captured objectives |
+| GET | `/internal/posts/{id}` | — | Post incl. hidden note (missing auth, #08) |
+| GET | `/api/objectives` | — | Active and captured objectives (`flag` is null except the #15 objective) |
 | POST | `/api/objectives/{id}/submit` | user | `{flag}` → `{correct, pointsAwarded, message}` |
-| GET | `/api/objectives/{id}/flag` | admin | Reveal a flag (testing) |
+| GET | `/api/objectives/{id}/flag` | admin | Reveal a flag (vault; #13/#16) |
+| GET | `/api/objectives/{id}/notice` | user | XSS objective's flag, held in a JS variable (#02) |
+| GET | `/internal/vault/{id}` | — | SSRF-only flag endpoint, not gateway-routed (#06) |
 | GET | `/api/scores/leaderboard` | — | Top 20 |
 | GET | `/api/scores/me` | user | Your points |
+| `GET`/`POST` | `/api/dev/*` | — | Testing console — only mapped when `DEV_TOOLS=true` (spawn/clear objectives) |
 
 Errors use the body `{"error": "..."}`. Validation errors use the standard `errors` dictionary.
 
@@ -102,7 +109,7 @@ Errors use the body `{"error": "..."}`. Validation errors use the standard `erro
 `GameEngineService` in [src/Services/GameService/Engine](src/Services/GameService/Engine) runs every `TickSeconds` and does three things:
 
 1. **Moderator review:** closes uncaptured objectives that have expired and deletes their trending posts.
-2. **Spawn:** if fewer than `MaxActiveObjectives` are open, publishes a trending post and creates an objective with a random flag `TROLL{...}`.
+2. **Spawn:** if fewer than `MaxActiveObjectives` are open, publishes a trending post and creates an objective with a random flag `TROLL{...}`. Each objective template declares a `FlagVector` (SQLi, IDOR, SSRF, mass assignment, missing auth, XSS, data leak, or admin endpoint) that decides *where* the flag is placed, so it can only be read by exploiting that vulnerability. Shared spawn logic lives in [ObjectiveSpawner.cs](src/Services/GameService/Engine/ObjectiveSpawner.cs).
 3. **Ambient content:** bots publish posts and comment on trending posts.
 
 The objective templates, bot names and texts live in [ContentLibrary.cs](src/Services/GameService/Engine/ContentLibrary.cs). This is where you design your challenges, including how players can discover each flag.
@@ -110,6 +117,12 @@ The objective templates, bot names and texts live in [ContentLibrary.cs](src/Ser
 ## Configuration
 
 All settings can be overridden with environment variables using `__` as the separator, e.g. `GameEngine__TickSeconds=30`. See [.env.example](.env.example) for the values Docker Compose reads.
+
+**What `.env` actually controls.** Because of VULN-SPOT #16, this build **hard-codes every secret in `docker-compose.yml`** (JWT signing key, database password, internal API key, admin password). So the credential entries in `.env` — `POSTGRES_PASSWORD`, `JWT_SECRET`, `INTERNAL_API_KEY`, `ADMIN_*` — are **ignored**; they're kept only to show what a secure build would configure. Compose only substitutes the non-secret knobs: `POSTGRES_USER`, `FRONTEND_PORT`, `DEV_TOOLS`, and the `GAME_*` tuning values.
+
+> `INTERNAL_API_KEY` is the shared secret for service-to-service calls (the `X-Internal-Key` header; see [InternalApi.cs](src/Shared/TrollNet.Shared/InternalApi.cs)). In a hardened build each service would receive it via `InternalApi__Key`. Here it's hard-coded in compose and the `/internal/*` endpoints no longer check it anyway (VULN-SPOT #08), so the `.env` value is dead config.
+
+Set `DEV_TOOLS=true` to enable the testing console (`/api/dev/*` and the **Dev** tab).
 
 ## Intentionally vulnerable code (`VULN-SPOT` markers)
 
@@ -139,7 +152,7 @@ grep -rn "VULN-SPOT" src frontend/src frontend/nginx.conf docker-compose.yml
 | 12 | Weak Password Hashing | [CWE-916](https://cwe.mitre.org/data/definitions/916.html) | [AuthEndpoints.cs](src/Services/AuthService/Endpoints/AuthEndpoints.cs) – `PasswordRules.Hash` | Unsalted SHA-256, identical passwords hash identically |
 | 13 | Improper JWT Signature Verification | [CWE-347](https://cwe.mitre.org/data/definitions/347.html) | [Auth.cs](src/Shared/TrollNet.Shared/Auth.cs) | Forge an `alg:none` token with `"role":"Admin"` |
 | 14 | Race Condition (TOCTOU) | [CWE-362](https://cwe.mitre.org/data/definitions/362.html) | [GameEndpoints.cs](src/Services/GameService/Endpoints/GameEndpoints.cs) – `SubmitFlag` | Send parallel correct submissions for one objective |
-| 15 | Sensitive Data Exposure | [CWE-200](https://cwe.mitre.org/data/definitions/200.html) | [GameEndpoints.cs](src/Services/GameService/Endpoints/GameEndpoints.cs) – `ObjectiveDto` | `GET /api/objectives` returns every `flag` anonymously |
+| 15 | Sensitive Data Exposure | [CWE-200](https://cwe.mitre.org/data/definitions/200.html) | [GameEndpoints.cs](src/Services/GameService/Endpoints/GameEndpoints.cs) – `ObjectiveDto` | `GET /api/objectives` leaks the data-exposure objective's `flag` anonymously |
 | 16 | Hard-coded Credentials | [CWE-798](https://cwe.mitre.org/data/definitions/798.html) | [docker-compose.yml](docker-compose.yml) | Admin password `admin1234`; JWT/DB/internal secrets in git |
 | 17 | Spoofable Client IP | [CWE-348](https://cwe.mitre.org/data/definitions/348.html) | [Hosting.cs](src/Shared/TrollNet.Shared/Hosting.cs), [nginx.conf](frontend/nginx.conf) | Send `X-Forwarded-For: 1.2.3.4` to change rate-limit bucket |
 | 18 | Error Message Information Leak | [CWE-209](https://cwe.mitre.org/data/definitions/209.html) | All three `Program.cs` files | `GET /api/posts/search?query='` returns a stack trace |
@@ -154,16 +167,20 @@ grep -rn "VULN-SPOT" src frontend/src frontend/nginx.conf docker-compose.yml
 - Any authenticated player can delete any post/comment, and system posts can be created through `/internal/posts`.
 - React renders post and comment bodies as raw HTML and the CSP permits inline scripts; frame protections are gone.
 - JWT signature/issuer/audience/lifetime validation is disabled, so tokens can be forged.
-- The objectives API leaks flags, flag comparison is not constant-time, and parallel submissions can score twice.
+- The objectives API leaks the data-exposure objective's flag, flag comparison is not constant-time, and parallel submissions can score twice.
 - Secrets, including the admin password, are committed in `docker-compose.yml`. Reset the game database after changing hashing: `docker compose down -v`.
 
 ### Presentation helper
 
 The same explanations are available **in the browser**: open the **Tips** tab, or click **Stuck? Open the training tips** / **Need a hint?** on the Objectives screen. Each tip can be expanded and searched by number, name, CWE or keyword.
 
-Each objective now carries a `tipId`, so **Need a hint? (#NN)** opens that objective's matching tip automatically. All current templates point to **#15 Sensitive Data Exposure**, because that is the vulnerability that actually exposes every objective flag in this lab. The leaked flag on the objectives screen is blurred by default; use **Reveal** to unblur it. This is cosmetic only — the flag is still present in the DOM and API response, which is the point of vulnerability #15.
+Each objective carries a `tipId`, so **Need a hint? (#NN)** opens that objective's matching tip automatically. The templates point at the tip that matches their own challenge: Meme Storm → **#02** Stored XSS, The Bridge Toll → **#03** IDOR, Silent Lurker → **#01** SQL Injection, Midnight Leak → **#15** Sensitive Data Exposure, Throne of the Cat Overlord → **#13** Improper JWT Verification, The Admin's Vault → **#16** Hard-coded Credentials, The Dead Drop → **#06** SSRF, The Shadow Decree → **#04** Mass Assignment, and The Open Push → **#08** Missing Authentication.
 
-Because objectives now have a `TipId` database column, reset an existing lab with `docker compose down -v` after updating.
+**Built-in terminal.** A small terminal is docked to the side of the page. It runs `curl` against the API (plus `jq`, `base64`, `whoami`, history, `$TOKEN` for your session token) so players can exploit the objectives without leaving the browser. Each objective's **Run in terminal** button loads the right command; output lines have a per-line **copy** / **copy flag** button.
+
+**Flags are earned, not shown.** Only the data-exposure objective (#15) still displays its flag; every other objective's flag must be read through its own vulnerability. The capture model and per-objective paths are documented in `ANSWERS.md`.
+
+**Dev console (testing).** Start the stack with `DEV_TOOLS=true docker compose up -d` to expose `/api/dev/*` and a **Dev** tab that spawns a specific objective on demand (instead of waiting for the random engine) or clears the board. Off by default — it hands out flags.
 
 `scripts/demo_vulnerabilities.py` automates discovery, demonstration and explanations:
 

@@ -23,6 +23,15 @@ public sealed class Post
     public required string Content { get; set; }
     public bool IsTrending { get; set; }
     public DateTime CreatedAt { get; set; }
+
+    /// <summary>
+    /// A "private moderator note" on a post. The game engine stores an objective's flag here for the
+    /// objectives whose vulnerability is a social-side data exposure (SQLi #01, IDOR #03, mass assignment
+    /// #04, missing authentication #08). It is deliberately omitted from every PUBLIC projection
+    /// (feed, GetPost), so it is only revealed by exploiting one of those vulnerabilities.
+    /// </summary>
+    public string? SystemNote { get; set; }
+
     public List<Comment> Comments { get; set; } = [];
 }
 
@@ -48,6 +57,7 @@ public sealed class SocialDbContext(DbContextOptions<SocialDbContext> options) :
         {
             post.Property(p => p.AuthorName).HasMaxLength(ContentRules.MaxAuthorNameLength);
             post.Property(p => p.Content).HasMaxLength(ContentRules.MaxPostLength);
+            post.Property(p => p.SystemNote).HasMaxLength(200);
             post.HasIndex(p => p.CreatedAt);
             post.HasMany(p => p.Comments)
                 .WithOne(c => c.Post)

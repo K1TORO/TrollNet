@@ -69,6 +69,10 @@ services:
       # VULN-SPOT #16: hard-coded internal API key (CWE-798). Also no longer required on endpoints (#08).
       InternalApi__Key: internal-api-key-for-training-only
       Services__Social: http://social-service:8080/
+      # Testing console: set DEV_TOOLS=true (e.g. in .env or the shell) to expose /api/dev/* so you can
+      # spawn a specific objective on demand. OFF by default — it hands out flags, so never enable it
+      # outside the local lab.
+      DevTools__Enabled: ${DEV_TOOLS:-false}
       GameEngine__TickSeconds: ${GAME_TICK_SECONDS:-60}
       GameEngine__ObjectiveLifetimeMinutes: ${GAME_OBJECTIVE_LIFETIME_MINUTES:-10}
       GameEngine__MaxActiveObjectives: ${GAME_MAX_ACTIVE_OBJECTIVES:-3}

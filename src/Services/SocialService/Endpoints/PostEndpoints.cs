@@ -16,6 +16,7 @@ public static class PostEndpoints
         posts.MapGet("/trending", GetTrending);
         posts.MapGet("/search", Search);
         posts.MapGet("/{id:int}", GetPost);
+        posts.MapGet("/{id:int}/note", GetPostNote);
         posts.MapGet("/attachment", GetAttachment);
         posts.MapPost("/", CreatePost).RequireAuthorization().RequireRateLimiting(WriteRateLimitPolicy);
         posts.MapDelete("/{id:int}", DeletePost).RequireAuthorization();
@@ -61,10 +62,11 @@ public static class PostEndpoints
         }
 
         // VULN-SPOT #01: SQL Injection (CWE-89) — INTENTIONAL FOR TRAINING
-        //   The search term is interpolated directly into the SQL text instead of being bound as a parameter.
-        //   Try: /api/posts/search?query=' OR 1=1 --        (returns every post)
-        //        /api/posts/search?query=' UNION SELECT 0,'admin','x','pwned',true,now(),0 --  (injects a row)
-        //   Fix: EF.Functions.ILike(p.Content, $"%{escaped}%", @"\") with a bound parameter, escaping LIKE wildcards.
+        //   The search term is interpolated directly into the SQL text instead of being bound as a parameter,
+        //   and the result is the raw Post entity (including the private SystemNote column) rather than a DTO.
+        //   So `' OR 1=1 --` dumps every post together with the hidden flag stored in SystemNote (#01 objective).
+        //   Try: /api/posts/search?query=' OR 1=1 --
+        //   Fix: EF.Functions.ILike(p.Content, $"%{escaped}%", @"\") with a bound parameter, and return PostDto.
         var sql = $"SELECT * FROM \"Posts\" WHERE \"Content\" ILIKE '%{term}%' ORDER BY \"CreatedAt\" DESC";
         var items = await db.Posts.FromSqlRaw(sql).AsNoTracking().ToListAsync(ct);
 
@@ -84,6 +86,21 @@ public static class PostEndpoints
             .FirstOrDefaultAsync(ct);
 
         return post is null ? NotFound("Post not found.") : Results.Ok(post);
+    }
+
+    // VULN-SPOT #03: IDOR / Broken Access Control (CWE-639) — INTENTIONAL FOR TRAINING
+    //   A post's "private moderator note" is served by id with no authentication and no ownership check,
+    //   so anyone can read any post's note just by changing the id. The game hides an objective flag here.
+    //   Try: GET /api/posts/<targetPostId>/note
+    //   Fix: require the caller to be the post's author or a moderator before returning the note.
+    private static async Task<IResult> GetPostNote(int id, SocialDbContext db, CancellationToken ct)
+    {
+        var note = await db.Posts.AsNoTracking()
+            .Where(p => p.Id == id)
+            .Select(p => new PostNoteDto(p.Id, p.SystemNote))
+            .FirstOrDefaultAsync(ct);
+
+        return note is null ? NotFound("Post not found.") : Results.Ok(note);
     }
 
     // VULN-SPOT #07: Path Traversal / Local File Inclusion (CWE-22) — INTENTIONAL FOR TRAINING
@@ -129,8 +146,23 @@ public static class PostEndpoints
         db.Posts.Add(post);
         await db.SaveChangesAsync(ct);
 
+        // VULN-SPOT #04 (continued): forging a privileged field (IsTrending / AuthorId) that a safe DTO would
+        // not expose "unlocks" the active decree — the server echoes the hidden note of the decree post.
+        // The decree is identified by its distinct AuthorId, so you always get the decree's own secret (not
+        // another note-bearing objective's). A normal post (content only) never triggers this.
+        var forgedPrivilegedField = request.IsTrending == true || request.AuthorId is not null;
+        string? unlockedNote = null;
+        if (forgedPrivilegedField)
+        {
+            unlockedNote = await db.Posts.AsNoTracking()
+                .Where(p => p.AuthorId == SystemAuthors.Decree && p.SystemNote != null && p.Id != post.Id)
+                .OrderByDescending(p => p.CreatedAt)
+                .Select(p => p.SystemNote)
+                .FirstOrDefaultAsync(ct);
+        }
+
         return Results.Created($"/api/posts/{post.Id}",
-            new PostDto(post.Id, post.AuthorId, post.AuthorName, post.Content, post.IsTrending, post.CreatedAt, 0));
+            new CreatePostResponse(post.Id, post.AuthorId, post.AuthorName, post.Content, post.IsTrending, post.CreatedAt, 0, unlockedNote));
     }
 
     private static async Task<IResult> DeletePost(int id, SocialDbContext db, CancellationToken ct)

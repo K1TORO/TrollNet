@@ -82,7 +82,7 @@ D. Find them by code smell without using the markers:
     #12  SHA256.HashData(...)
     #13  ValidateIssuerSigningKey = false / RequireSignedTokens = false
     #14  objective.IsCompleted = true followed by SaveChangesAsync (no conditional UPDATE)
-    #15  ObjectiveDto(..., string Flag) exposed by GET /api/objectives
+    #15  ObjectiveDto.Flag exposed by GET /api/objectives (data-exposure objective only)
     #16  literal passwords/secrets in docker-compose.yml
     #17  KnownIPNetworks.Add(0.0.0.0/0) + $proxy_add_x_forwarded_for
     #18  UseDeveloperExceptionPage()
@@ -133,7 +133,7 @@ Quick reference (full details live in the code comments and README.md):
     #12  Register two users with the same password; hashes are identical
     #13  Send a JWT with {"alg":"none"} and {"role":"Admin"} to /api/auth/me
     #14  Send two correct flag submissions for the same objective in parallel
-    #15  curl http://localhost:8080/api/objectives | jq '.[0].flag'
+    #15  curl http://localhost:8080/api/objectives | jq '.[] | select(.vector=="DataLeak") | .flag'
     #16  Log in with admin / admin1234; JWT/DB/internal secrets are in docker-compose.yml
     #17  Add "X-Forwarded-For: 1.2.3.4" to requests to change the rate-limit bucket
     #18  curl -G --data-urlencode "query='" http://localhost:8080/api/posts/search
@@ -176,13 +176,16 @@ Quick reference (full details live in the code comments and README.md):
 
 The same explanations are built into the browser UI: open the Tips tab, or click
 "Stuck? Open the training tips" / "Need a hint? (#NN)" on the Objectives screen. Tips can be
-searched by number, name, CWE or keyword. Each objective carries a tipId; all current
-templates point to #15 because that is the vulnerability that exposes every objective
-flag. The leaked flag is blurred by default with a Reveal button, but the blur is only
-cosmetic: the value remains in the DOM and the anonymous API response.
+searched by number, name, CWE or keyword. Each objective carries a tipId; the current
+templates point at the tip that matches their own challenge (Meme Storm → #02, Bridge Toll →
+#03, Silent Lurker → #01, Midnight Leak → #15, Throne of the Cat Overlord → #13, The Admin's
+Vault → #16, The Dead Drop → #06, The Shadow Decree → #04, The Open Push → #08).
 
-Because objectives now have a TipId column, reset an existing lab with
-"docker compose down -v" after updating.
+Flags are earned, not shown. Each objective declares a FlagVector that decides where its flag
+lives, so it can only be read by exploiting that objective's own vulnerability. The only
+objective that still displays its flag is the data-exposure one (#15) - that leak is its lesson.
+Each objective card has a "How to capture" hint and a "Run in terminal" button that loads the
+exact command into the built-in browser terminal. See ANSWERS.md for every per-objective path.
 
 scripts/demo_vulnerabilities.py does the jobs from this document, plus explanations:
 

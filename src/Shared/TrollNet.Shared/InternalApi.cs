@@ -55,8 +55,20 @@ public sealed class InternalApiKeyHandler(IConfiguration configuration) : Delega
     }
 }
 
+/// <summary>Well-known AuthorIds for engine-generated content (real players start at 1).</summary>
+public static class SystemAuthors
+{
+    public const int System = 0;
+
+    /// <summary>Mass-assignment decree target posts (#04). Lets the create endpoint echo the RIGHT decree's
+    /// secret instead of whichever system post most recently stored a note.</summary>
+    public const int Decree = 777;
+}
+
 // Contracts used for service-to-service communication.
-public sealed record SystemPostRequest(string? AuthorName, string? Content, bool IsTrending);
+// SystemNote and AuthorId let the game engine seed objective target posts with a hidden flag and a
+// forged system author for the social-side vulnerability objectives (SQLi/IDOR/mass-assign/missing-auth).
+public sealed record SystemPostRequest(string? AuthorName, string? Content, bool IsTrending, string? SystemNote = null, int? AuthorId = null);
 
 public sealed record SystemCommentRequest(string? AuthorName, string? Content);
 

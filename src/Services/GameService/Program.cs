@@ -14,6 +14,7 @@ builder.Services.AddTrollNetAuthentication(builder.Configuration);
 builder.Services.AddSingleton(TimeProvider.System);
 
 builder.Services.Configure<GameEngineOptions>(builder.Configuration.GetSection(GameEngineOptions.SectionName));
+builder.Services.Configure<DevToolsOptions>(builder.Configuration.GetSection(DevToolsOptions.SectionName));
 builder.Services.AddTransient<InternalApiKeyHandler>();
 // VULN-SPOT #06: Server-Side Request Forgery, SSRF (CWE-918) — INTENTIONAL FOR TRAINING
 //   The generic HttpClient factory has no restrictions and is used by POST /api/link-preview with a
@@ -48,6 +49,13 @@ app.UseRateLimiter();
 
 app.MapHealthChecks("/health");
 app.MapGameEndpoints();
+
+// Testing console: only mapped when DevTools:Enabled is true (set via compose). When off, /api/dev/* 404s.
+if (app.Configuration.GetSection(DevToolsOptions.SectionName).Get<DevToolsOptions>()?.Enabled == true)
+{
+    app.MapDevEndpoints();
+    app.Logger.LogWarning("DevTools endpoints are ENABLED (/api/dev/*). Do not use this configuration in production.");
+}
 
 // Runs before the host starts, so the game engine only begins once the schema exists.
 await app.InitializeDatabaseAsync<GameDbContext>();

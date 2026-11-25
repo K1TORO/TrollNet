@@ -34,3 +34,13 @@ public sealed record CreatePostRequest(
     DateTime? CreatedAt);
 
 public sealed record CreateCommentRequest(string? Content);
+
+// Returned by the IDOR note endpoint (#03) and the unauthenticated internal GET (#08): both expose the
+// post's private SystemNote, which the public feed/GetPost DTOs never include.
+public sealed record PostNoteDto(int PostId, string? SystemNote);
+
+public sealed record InternalPostDto(int Id, int AuthorId, string AuthorName, string Content, bool IsTrending, DateTime CreatedAt, string? SystemNote);
+
+// Response to a post creation. SystemNote is normally null, but a forged privileged write (mass assignment,
+// #04) echoes the active decree's hidden note here.
+public sealed record CreatePostResponse(int Id, int AuthorId, string AuthorName, string Content, bool IsTrending, DateTime CreatedAt, int CommentCount, string? SystemNote);

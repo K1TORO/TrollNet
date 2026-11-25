@@ -1,20 +1,24 @@
 using System.Security.Claims;
 using GameService.Data;
+using GameService.Engine;
 using Microsoft.EntityFrameworkCore;
 using TrollNet.Shared;
 
 namespace GameService.Endpoints;
 
 // VULN-SPOT #15: Exposure of Sensitive Information (CWE-200) — INTENTIONAL FOR TRAINING
-//   The public objectives DTO includes the secret Flag, and GET /api/objectives requires no authentication.
-//   Anyone can read every flag and submit it for points without solving the challenge.
-//   Fix: never put Flag on a public DTO; keep the admin-only /flag endpoint for teacher testing.
+//   GET /api/objectives is anonymous, and for the data-exposure objective (Vector == DataLeak) the public
+//   DTO still returns the secret Flag, so anyone can read that flag without solving anything. Every other
+//   objective now returns Flag = null and must be earned through its own vulnerability.
+//   Try: curl -s /api/objectives | jq '.[] | select(.vector=="DataLeak") | .flag'
+//   Fix: never put Flag on a public DTO; reveal it only to a completed solver or an admin.
 public sealed record ObjectiveDto(
     int Id,
     string Title,
     string Description,
     string Category,
     string TipId,
+    string Vector,
     int Difficulty,
     int Points,
     int? TargetPostId,
@@ -22,7 +26,7 @@ public sealed record ObjectiveDto(
     DateTime ExpiresAt,
     bool IsCompleted,
     string? CompletedByUsername,
-    string Flag);
+    string? Flag);
 
 public sealed record SubmitFlagRequest(string? Flag);
 
@@ -50,8 +54,13 @@ public static class GameEndpoints
         //   No rate limiter on flag submission, so guesses can be sent as fast as the network allows.
         //   Fix: re-apply SubmitRateLimitPolicy (10 guesses/minute per user) or use exponential backoff.
         objectives.MapPost("/{id:int}/submit", SubmitFlag).RequireAuthorization();
-        // Lets teachers verify the scoring flow end-to-end. Admin only.
+        // The flag vault (VULN-SPOT #16 / #13): admin-only, but the JWT signature is never validated,
+        // so a forged alg:none Admin token opens it just like the real seeded admin account does.
         objectives.MapGet("/{id:int}/flag", RevealFlag).RequireAuthorization(Policies.Admin);
+        // VULN-SPOT #02: the XSS objective's flag is delivered to an authenticated page as a "notice".
+        //   The web app loads it into a JS-only variable (never shown on screen); you read it with the
+        //   browser console or an injected inline script. Any logged-in player may call it.
+        objectives.MapGet("/{id:int}/notice", GetNotice).RequireAuthorization();
 
         var scores = app.MapGroup("/api/scores");
         scores.MapGet("/leaderboard", GetLeaderboard);
@@ -59,6 +68,10 @@ public static class GameEndpoints
 
         // VULN-SPOT #06: Server-Side Request Forgery (CWE-918) — INTENTIONAL FOR TRAINING
         app.MapPost("/api/link-preview", PreviewLink);
+
+        // The SSRF "dead drop": an internal vault that returns an objective's flag. It is NOT routed by the
+        // gateway, so it is only reachable from inside the Docker network — e.g. via the link-preview SSRF.
+        app.MapGet("/internal/vault/{id:int}", RevealVaultFlag);
 
         return app;
     }
@@ -92,8 +105,10 @@ public static class GameEndpoints
             .OrderBy(o => o.IsCompleted).ThenBy(o => o.ExpiresAt).ThenByDescending(o => o.CompletedAt)
             .Take(50)
             .Select(o => new ObjectiveDto(
-                o.Id, o.Title, o.Description, o.Category, o.TipId, o.Difficulty, o.Points, o.TargetPostId,
-                o.CreatedAt, o.ExpiresAt, o.IsCompleted, o.CompletedByUsername, o.Flag))
+                o.Id, o.Title, o.Description, o.Category, o.TipId, o.Vector.ToString(), o.Difficulty, o.Points, o.TargetPostId,
+                o.CreatedAt, o.ExpiresAt, o.IsCompleted, o.CompletedByUsername,
+                // VULN-SPOT #15: only the DataLeak objective still exposes its flag here.
+                o.Vector == FlagVector.DataLeak ? o.Flag : null))
             .ToListAsync(ct);
 
         return Results.Ok(items);
@@ -168,6 +183,33 @@ public static class GameEndpoints
             .FirstOrDefaultAsync(ct);
 
         return flag is null ? Results.NotFound(new ErrorResponse("Objective not found.")) : Results.Ok(new FlagDto(id, flag));
+    }
+
+    // SSRF target (#06): returns the flag only for SSRF objectives, and only to callers who can reach this
+    // internal route — i.e. the server itself via link-preview. Not exposed through the gateway.
+    private static async Task<IResult> RevealVaultFlag(int id, GameDbContext db, CancellationToken ct)
+    {
+        var objective = await db.Objectives.AsNoTracking()
+            .Where(o => o.Id == id && o.Vector == FlagVector.Ssrf)
+            .Select(o => new { o.Flag })
+            .FirstOrDefaultAsync(ct);
+
+        return objective is null
+            ? Results.NotFound(new ErrorResponse("No dead drop at that id."))
+            : Results.Ok(new FlagDto(id, objective.Flag));
+    }
+
+    // XSS notice (#02): the flag for XSS objectives, for the authenticated page to hold in a JS variable.
+    private static async Task<IResult> GetNotice(int id, GameDbContext db, CancellationToken ct)
+    {
+        var objective = await db.Objectives.AsNoTracking()
+            .Where(o => o.Id == id && o.Vector == FlagVector.Xss)
+            .Select(o => new { o.Flag })
+            .FirstOrDefaultAsync(ct);
+
+        return objective is null
+            ? Results.NotFound(new ErrorResponse("No notice for that objective."))
+            : Results.Ok(new FlagDto(id, objective.Flag));
     }
 
     private static async Task<IResult> GetLeaderboard(GameDbContext db, CancellationToken ct)

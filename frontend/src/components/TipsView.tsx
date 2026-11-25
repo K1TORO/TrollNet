@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { VULN_TIPS } from '../vulnerabilityTips';
+import { CommandTemplate } from './Terminal';
 
 export function TipsView({ focusId }: { focusId?: string | null }) {
   const [filter, setFilter] = useState('');
@@ -86,6 +87,14 @@ export function TipsView({ focusId }: { focusId?: string | null }) {
               <p className="success-text small">
                 <strong>Fix:</strong> {tip.fix}
               </p>
+              {tip.curl && (
+                <CommandTemplate
+                  title={`curl · ${tip.title}`}
+                  command={tip.curl}
+                  description={tip.curlDescription}
+                  flags={tip.curlFlags}
+                />
+              )}
             </div>
           </details>
         ))}

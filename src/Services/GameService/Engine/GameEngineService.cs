@@ -1,4 +1,3 @@
-using System.Security.Cryptography;
 using GameService.Data;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
@@ -105,35 +104,9 @@ public sealed class GameEngineService(
         }
 
         var template = ContentLibrary.Pick(ContentLibrary.Objectives);
-        var postId = await social.CreatePostAsync(template.PostAuthor, template.PostContent, isTrending: true, ct);
+        var objective = await ObjectiveSpawner.SpawnAsync(db, social, template, settings.ObjectiveLifetimeMinutes, now, ct);
 
-        var objective = new Objective
-        {
-            Title = template.Title,
-            Description = template.Description,
-            Category = template.Category,
-            Difficulty = template.Difficulty,
-            Points = ContentLibrary.PointsFor(template.Difficulty),
-            TipId = template.TipId,
-            TargetPostId = postId,
-            Flag = GenerateFlag(),
-            CreatedAt = now,
-            ExpiresAt = now.AddMinutes(settings.ObjectiveLifetimeMinutes),
-        };
-
-        try
-        {
-            db.Objectives.Add(objective);
-            await db.SaveChangesAsync(ct);
-        }
-        catch
-        {
-            // Don't leave an orphaned trending post behind.
-            await social.DeletePostAsync(postId, CancellationToken.None);
-            throw;
-        }
-
-        logger.LogInformation("Spawned objective {ObjectiveId} '{Title}' targeting post {PostId}.", objective.Id, objective.Title, postId);
+        logger.LogInformation("Spawned objective {ObjectiveId} '{Title}' targeting post {PostId}.", objective.Id, objective.Title, objective.TargetPostId);
     }
 
     private static async Task GenerateAmbientContentAsync(GameDbContext db, SocialClient social, GameEngineOptions settings, DateTime now, CancellationToken ct)
@@ -164,6 +137,4 @@ public sealed class GameEngineService(
             }
         }
     }
-
-    private static string GenerateFlag() => $"TROLL{{{RandomNumberGenerator.GetHexString(24, lowercase: true)}}}";
 }

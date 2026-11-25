@@ -46,8 +46,10 @@ export interface Objective {
   expiresAt: string;
   isCompleted: boolean;
   completedByUsername: string | null;
-  // VULN-SPOT #15: the secret flag is returned to every anonymous caller.
-  flag: string;
+  /** How this objective's flag is exposed; drives the per-objective capture hint. */
+  vector: 'AdminEndpoint' | 'DataLeak' | 'Ssrf' | 'Sqli' | 'MissingAuth' | 'Idor' | 'Xss' | 'MassAssign';
+  // VULN-SPOT #15: only the DataLeak objective still returns its flag here; null for every other objective.
+  flag: string | null;
 }
 
 export interface SubmitResult {
@@ -140,7 +142,10 @@ async function readError(res: Response): Promise<string> {
   return FALLBACK_MESSAGES[res.status] ?? `Request failed (${res.status}).`;
 }
 
-async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
+async function request<T>(path: string, init: RequestInit = {}, opts: { handleUnauthorized?: boolean } = {}): Promise<T> {
+  // By default a 401 means "my session expired": drop the token and recreate a guest. Endpoints where a 401
+  // is an expected answer (login with wrong credentials) opt out, so a failed sign-in never wipes the session.
+  const handleUnauthorized = opts.handleUnauthorized ?? true;
   const headers = new Headers(init.headers);
   if (init.body !== undefined) headers.set('Content-Type', 'application/json');
 
@@ -155,7 +160,7 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
   const res = await fetch(`/api${path}`, { ...init, headers });
 
   if (!res.ok) {
-    if (res.status === 401 && token) {
+    if (res.status === 401 && token && handleUnauthorized) {
       tokenStore.clear();
       window.dispatchEvent(new Event(UNAUTHORIZED_EVENT));
     }
@@ -170,6 +175,10 @@ const json = (body: unknown) => JSON.stringify(body);
 
 export const api = {
   guest: () => request<AuthResponse>('/auth/guest', { method: 'POST' }),
+  login: (username: string, password: string) =>
+    // handleUnauthorized:false — a 401 here is "wrong credentials", not an expired session, so it must not
+    // clear the current guest token or trigger a new guest.
+    request<AuthResponse>('/auth/login', { method: 'POST', body: json({ username, password }) }, { handleUnauthorized: false }),
   me: () => request<User>('/auth/me'),
 
   feed: (page = 1) => request<Post[]>(`/posts?page=${page}&pageSize=${PAGE_SIZE}`),
@@ -184,10 +193,42 @@ export const api = {
   objectives: () => request<Objective[]>('/objectives'),
   submitFlag: (objectiveId: number, flag: string) =>
     request<SubmitResult>(`/objectives/${objectiveId}/submit`, { method: 'POST', body: json({ flag }) }),
+  // VULN-SPOT #02: the XSS objective's flag, loaded into a JS-only variable (never shown on screen).
+  objectiveNotice: (objectiveId: number) =>
+    request<{ objectiveId: number; flag: string }>(`/objectives/${objectiveId}/notice`),
 
   leaderboard: () => request<ScoreEntry[]>('/scores/leaderboard'),
   myScore: () => request<ScoreEntry>('/scores/me'),
+
+  // Testing console (only present when DevTools is enabled in compose).
+  devStatus: () => request<DevStatus>('/dev/status'),
+  devSpawn: (body: { template?: number; vector?: string }) =>
+    request<DevObjective>('/dev/spawn', { method: 'POST', body: json(body) }),
+  devClear: () => request<{ cleared: number }>('/dev/clear', { method: 'POST' }),
 };
+
+export interface DevTemplate {
+  index: number;
+  title: string;
+  vector: string;
+  tipId: string;
+  difficulty: number;
+  points: number;
+}
+
+export interface DevStatus {
+  enabled: boolean;
+  templates: DevTemplate[];
+}
+
+export interface DevObjective {
+  id: number;
+  title: string;
+  vector: string;
+  targetPostId: number | null;
+  flag: string;
+  expiresAt: string;
+}
 
 export function errorMessage(error: unknown): string {
   if (error instanceof ApiError) return error.message;

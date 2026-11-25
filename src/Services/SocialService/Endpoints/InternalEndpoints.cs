@@ -20,9 +20,23 @@ public static class InternalEndpoints
         //   Fix: require the internal API key AND keep /internal/* unrouted by the public gateway.
         var group = app.MapGroup("/internal/posts");
         group.MapPost("/", CreatePost);
+        group.MapGet("/{id:int}", GetPost);
         group.MapDelete("/{id:int}", DeletePost);
         group.MapPost("/{id:int}/comments", CreateComment);
         return app;
+    }
+
+    // VULN-SPOT #08 (continued): the unauthenticated internal read returns the post INCLUDING its private
+    //   SystemNote, which the public API hides. Reachable through the gateway, so anyone can read the flag the
+    //   game stashed on the target post.  Try: GET /internal/posts/<targetPostId>
+    private static async Task<IResult> GetPost(int id, SocialDbContext db, CancellationToken ct)
+    {
+        var post = await db.Posts.AsNoTracking()
+            .Where(p => p.Id == id)
+            .Select(p => new InternalPostDto(p.Id, p.AuthorId, p.AuthorName, p.Content, p.IsTrending, p.CreatedAt, p.SystemNote))
+            .FirstOrDefaultAsync(ct);
+
+        return post is null ? Results.NotFound() : Results.Ok(post);
     }
 
     private static async Task<IResult> CreatePost(SystemPostRequest request, SocialDbContext db, TimeProvider time, CancellationToken ct)
@@ -34,10 +48,11 @@ public static class InternalEndpoints
 
         var post = new Post
         {
-            AuthorId = ContentRules.SystemAuthorId,
+            AuthorId = request.AuthorId ?? ContentRules.SystemAuthorId,
             AuthorName = request.AuthorName!,
             Content = request.Content!,
             IsTrending = request.IsTrending,
+            SystemNote = request.SystemNote,
             CreatedAt = time.GetUtcNow().UtcDateTime,
         };
         db.Posts.Add(post);

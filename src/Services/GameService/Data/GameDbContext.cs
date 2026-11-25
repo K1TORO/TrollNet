@@ -14,6 +14,9 @@ public sealed class Objective
     /// <summary>Id of the browser training tip that matches this objective.</summary>
     public string TipId { get; set; } = "01";
 
+    /// <summary>How this objective's flag is exposed — determines the one vulnerability that reveals it.</summary>
+    public GameService.Engine.FlagVector Vector { get; set; }
+
     /// <summary>Post in the social service this objective is about.</summary>
     public int? TargetPostId { get; set; }
 

@@ -484,6 +484,118 @@ button.danger {
   overflow-wrap: anywhere;
 }
 
+/* In-browser terminal: shows a ready-to-use curl template for a tip. */
+.terminal {
+  margin-top: 10px;
+  border: 1px solid var(--bevel-light);
+  border-radius: 6px;
+  background: #0d0e13;
+  overflow: hidden;
+}
+.terminal-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px;
+  background: var(--panel);
+  border-bottom: 1px solid var(--bevel-light);
+}
+.terminal-dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: var(--danger);
+}
+.terminal-dot:nth-child(2) {
+  background: var(--gold);
+}
+.terminal-dot:nth-child(3) {
+  background: var(--success);
+}
+.terminal-title {
+  margin-left: 6px;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--muted);
+}
+.terminal-body {
+  padding: 10px 12px;
+}
+.terminal-line {
+  margin: 0 0 8px;
+  font-family: var(--font-mono);
+  font-size: 13px;
+  color: var(--text);
+  overflow-wrap: anywhere;
+}
+.terminal-prompt {
+  color: var(--success);
+  font-weight: bold;
+}
+.terminal-desc {
+  margin: 0 0 8px;
+  font-size: 13px;
+  color: var(--muted);
+}
+.terminal-flags {
+  margin: 0 0 8px;
+  padding-left: 18px;
+  display: grid;
+  gap: 4px;
+  font-size: 13px;
+  color: var(--muted);
+}
+.terminal-flags code {
+  font-family: var(--font-mono);
+  color: var(--link);
+}
+.terminal-actions {
+  display: flex;
+  gap: 12px;
+  margin-bottom: 8px;
+}
+.terminal-screen {
+  max-height: 360px;
+  overflow-y: auto;
+  padding: 8px;
+  border: 1px solid var(--bevel-dark);
+  border-radius: 4px;
+  background: #07080b;
+  font-family: var(--font-mono);
+  font-size: 13px;
+  color: var(--text);
+  cursor: text;
+}
+.terminal-out {
+  margin: 0 0 4px;
+  font-family: var(--font-mono);
+  font-size: 13px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.terminal-out.info {
+  color: var(--muted);
+}
+.terminal-out.error {
+  color: var(--danger);
+}
+.terminal-input-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.terminal-input {
+  flex: 1;
+  min-width: 0;
+  padding: 0;
+  border: none;
+  outline: none;
+  background: transparent;
+  color: var(--text);
+  font-family: var(--font-mono);
+  font-size: 13px;
+}
+
 /* Leaderboard: an old-school HTML table */
 
 .leaderboard {
@@ -725,4 +837,155 @@ button.danger {
   .flag-form {
     flex-direction: column;
   }
+}
+
+/* Docked terminal: fixed to the right on wide screens, to the bottom on narrow ones. */
+
+.shell.with-terminal {
+  padding-right: 460px;
+}
+
+.side-terminal {
+  position: fixed;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 20;
+  width: 460px;
+  padding: 16px 12px 16px 0;
+  display: flex;
+}
+.side-terminal[hidden] {
+  display: none;
+}
+
+.terminal-live {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  margin-top: 0;
+  min-height: 0;
+}
+.terminal-live .terminal-screen {
+  flex: 1;
+  max-height: none;
+  border: none;
+  border-radius: 0;
+}
+
+.terminal-close {
+  margin-left: auto;
+}
+
+.terminal-toggle {
+  position: fixed;
+  right: 16px;
+  bottom: 16px;
+  z-index: 20;
+  padding: 8px 12px;
+  font-family: var(--font-mono);
+  font-size: 13px;
+  color: var(--success);
+  background: #0d0e13;
+  border: 1px solid var(--bevel-light);
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+@media (max-width: 1240px) {
+  .shell.with-terminal {
+    padding-right: 0;
+    padding-bottom: 42vh;
+  }
+  .side-terminal {
+    top: auto;
+    left: 0;
+    width: auto;
+    height: 42vh;
+    padding: 0;
+  }
+  .terminal-live {
+    border-radius: 0;
+  }
+}
+
+/* Top-bar sign-in control (guest -> real account, e.g. admin for VULN #16). */
+.signin-form {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+.signin-form input {
+  width: 110px;
+  padding: 3px 6px;
+  font-size: 13px;
+}
+.signin-error {
+  flex-basis: 100%;
+}
+.role-badge {
+  margin-left: 6px;
+  padding: 1px 6px;
+  border-radius: 4px;
+  background: var(--gold);
+  color: #000;
+  font-size: 11px;
+  font-weight: bold;
+  text-transform: uppercase;
+}
+
+/* Objective capture panel: per-vulnerability "how to earn the flag" hint. */
+.capture-panel {
+  margin: 8px 0;
+  padding: 8px 10px;
+  border-left: 3px solid var(--link);
+  background: rgba(143, 179, 217, 0.08);
+}
+.capture-cmd {
+  margin: 6px 0 0;
+  font-size: 13px;
+  overflow-wrap: anywhere;
+}
+.capture-cmd code {
+  font-family: var(--font-mono);
+  color: var(--link);
+}
+
+/* Terminal output rows: selectable text + an always-available per-line copy button. */
+.terminal-out,
+.terminal-screen {
+  -webkit-user-select: text;
+  user-select: text;
+}
+.terminal-out-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+}
+.terminal-out-row .terminal-out {
+  flex: 1;
+  min-width: 0;
+}
+.terminal-linecopy {
+  flex: none;
+  margin-top: 2px;
+  padding: 1px 6px;
+  font-size: 11px;
+  font-family: var(--font-mono);
+  color: var(--muted);
+  background: transparent;
+  border: 1px solid var(--bevel-light);
+  border-radius: 4px;
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 0.1s;
+}
+.terminal-out-row:hover .terminal-linecopy,
+.terminal-linecopy:focus-visible {
+  opacity: 1;
+}
+.terminal-linecopy:hover {
+  color: var(--link);
+  border-color: var(--link);
 }
