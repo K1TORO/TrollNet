@@ -6,14 +6,16 @@ import { LeaderboardView } from './components/LeaderboardView';
 import { ObjectivesView } from './components/ObjectivesView';
 import { SearchView } from './components/SearchView';
 import { TipsView } from './components/TipsView';
+import { DocsView } from './components/DocsView';
 
-type Tab = 'feed' | 'search' | 'objectives' | 'tips' | 'leaderboard';
+type Tab = 'feed' | 'search' | 'objectives' | 'tips' | 'docs' | 'leaderboard';
 
 const TABS: { id: Tab; label: string }[] = [
   { id: 'feed', label: 'Feed' },
   { id: 'search', label: 'Search' },
   { id: 'objectives', label: 'Objectives' },
   { id: 'tips', label: 'Tips' },
+  { id: 'docs', label: 'API & DB' },
   { id: 'leaderboard', label: 'Leaderboard' },
 ];
 
@@ -83,6 +85,7 @@ export default function App() {
           />
         )}
         {tab === 'tips' && <TipsView focusId={focusedTipId} />}
+        {tab === 'docs' && <DocsView />}
         {tab === 'leaderboard' && <LeaderboardView />}
       </main>
 

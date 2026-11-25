@@ -525,6 +525,148 @@ button.danger {
   font-weight: bold;
 }
 
+/* API & DB map */
+
+.docs-panel {
+  background: var(--panel);
+  border: 2px solid;
+  border-color: var(--bevel-light) var(--bevel-dark) var(--bevel-dark) var(--bevel-light);
+  padding: 10px 12px;
+}
+
+.docs-title {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 4px 12px;
+  margin: -10px -12px 10px;
+  padding: 5px 12px;
+  color: #e4e2da;
+  background: linear-gradient(90deg, var(--title-from), var(--title-to));
+  border-bottom: 1px solid var(--bevel-dark);
+}
+
+.docs-title h3 {
+  font-size: 0.95rem;
+}
+
+.table-scroll {
+  overflow-x: auto;
+}
+
+.docs-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.85rem;
+  border: 2px solid;
+  border-color: var(--bevel-dark) var(--bevel-light) var(--bevel-light) var(--bevel-dark);
+}
+
+.docs-table th,
+.docs-table td {
+  padding: 4px 6px;
+  text-align: left;
+  vertical-align: top;
+  border: 1px solid var(--bevel-dark);
+}
+
+.docs-table th {
+  font-weight: normal;
+  color: var(--muted);
+  background: var(--field);
+}
+
+.docs-table tbody tr:nth-child(even) td {
+  background: rgba(0, 0, 0, 0.18);
+}
+
+.docs-table code {
+  overflow-wrap: anywhere;
+}
+
+.method,
+.key {
+  display: inline-block;
+  min-width: 52px;
+  padding: 0 4px;
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+  font-weight: bold;
+  text-align: center;
+  border: 1px solid #000;
+}
+
+.method-get {
+  color: #dfe9f3;
+  background: #3b5a85;
+}
+
+.method-post {
+  color: #e6f0e8;
+  background: #4a6b52;
+}
+
+.method-delete {
+  color: #f3e3e3;
+  background: #7a4545;
+}
+
+.key {
+  min-width: 28px;
+  color: #f3ead2;
+  background: var(--hot);
+}
+
+.key-fk {
+  background: #4b4f5e;
+}
+
+.key-uq {
+  background: #5a4f6e;
+}
+
+.type-list {
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 0.85rem;
+}
+
+.type-list > div {
+  display: grid;
+  grid-template-columns: 130px 1fr;
+  gap: 8px;
+}
+
+.type-list dt {
+  color: var(--gold);
+}
+
+.type-list dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.db-icon {
+  font-family: var(--font-mono);
+  color: var(--gold);
+}
+
+.db-table + .db-table {
+  margin-top: 14px;
+}
+
+.db-table h4 {
+  margin: 0 0 6px;
+  font-size: 0.9rem;
+}
+
+.db-table > p {
+  margin-top: 6px;
+}
+
 .notice {
   margin-bottom: 12px;
   padding: 6px 10px;
