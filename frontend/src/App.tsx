@@ -25,8 +25,12 @@ export default function App() {
   return (
     <div className="app">
       <header className="topbar">
-        <div className="brand">TrollNet</div>
+        <div className="banner">
+          <div className="brand">TrollNet</div>
+          <div className="tagline">~*~ the friendliest bridge on the information superhighway ~*~</div>
+        </div>
 
+        <div className="navbar">
         <nav className="tabs" aria-label="Main">
           {TABS.map((t) => (
             <button
@@ -45,10 +49,13 @@ export default function App() {
 
         {user && (
           <div className="account">
+            <span>
+              Logged in as <strong>{user.username}</strong>
+            </span>
             <ScoreBadge key={user.id} />
-            <span>@{user.username}</span>
           </div>
         )}
+        </div>
       </header>
 
       <main className="content">
@@ -78,6 +85,13 @@ export default function App() {
         {tab === 'tips' && <TipsView focusId={focusedTipId} />}
         {tab === 'leaderboard' && <LeaderboardView />}
       </main>
+
+      <footer className="site-footer">
+        <div className="construction" aria-hidden="true" />
+        <p className="hit-counter">
+          You are visitor <span aria-label="number 1337">0001337</span>
+        </p>
+      </footer>
     </div>
   );
 }
@@ -100,5 +114,5 @@ function ScoreBadge() {
     };
   }, []);
 
-  return points === null ? null : <span className="muted">{points} pts</span>;
+  return points === null ? null : <span className="score-box">{points} pts</span>;
 }

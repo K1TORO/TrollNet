@@ -21,7 +21,7 @@ export function LeaderboardView() {
   usePolling(refresh, 20_000);
 
   return (
-    <section>
+    <section className="leaderboard-panel">
       <h2>Leaderboard</h2>
       {error && <p className="error">{error}</p>}
       {entries !== null && entries.length === 0 && <p className="muted">No flags captured yet. Be the first!</p>}
