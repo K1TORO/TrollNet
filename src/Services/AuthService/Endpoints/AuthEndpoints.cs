@@ -19,12 +19,21 @@ public sealed record AuthResponse(string Token, DateTime ExpiresAt, UserDto User
 
 public static partial class PasswordRules
 {
-    public const int BcryptWorkFactor = 11;
     public const int MinPasswordLength = 8;
-    public const int MaxPasswordBytes = 72; // bcrypt ignores everything after 72 bytes
+    public const int MaxPasswordBytes = 72;
 
     [GeneratedRegex("^[A-Za-z0-9_]{3,32}$")]
     public static partial Regex UsernamePattern();
+
+    // VULN-SPOT #12: Weak Password Hashing (CWE-916) — INTENTIONAL FOR TRAINING
+    //   A single fast SHA-256 with no per-user salt. GPU rigs can test billions of guesses per second,
+    //   and identical passwords produce identical hashes.
+    //   Fix: use a salted, deliberately slow KDF such as BCrypt/Argon2id/scrypt.
+    public static string Hash(string password) =>
+        Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(password)));
+
+    public static bool Verify(string password, string storedHash) =>
+        string.Equals(Hash(password), storedHash, StringComparison.Ordinal);
 }
 
 public static class AuthEndpoints
@@ -33,25 +42,23 @@ public static class AuthEndpoints
 
     private const string InvalidCredentials = "Invalid username or password.";
 
-    // VULN-SPOT #10: User Enumeration (CWE-204)
-    //   Typical mistake: different error messages or response times for "no such user" and "wrong password".
-    //   Here: one generic message, and a dummy hash is verified when the user does not exist,
-    //   so response time does not reveal which usernames are registered.
-    //   (Registration still has to say "username taken"; rate limiting (#11) limits abuse of that.)
-    private static readonly Lazy<string> DummyHash =
-        new(() => BCrypt.Net.BCrypt.HashPassword(Guid.NewGuid().ToString(), PasswordRules.BcryptWorkFactor));
+    // VULN-SPOT #10: User Enumeration (CWE-204) — INTENTIONAL FOR TRAINING
+    //   Login reveals whether an account exists: a missing user gets 404 + "No account with username ...",
+    //   while a wrong password gets 401 + a different message. Attackers can build a list of valid players.
+    //   Fix: return one generic message/status for both cases and do comparable work in both paths.
 
     public static IEndpointRouteBuilder MapAuthEndpoints(this IEndpointRouteBuilder app)
     {
         var group = app.MapGroup("/api/auth");
-        // VULN-SPOT #11: Brute Force / Missing Rate Limiting (CWE-307)
-        //   Typical mistake: unlimited login attempts allow password guessing.
-        //   Here: 10 attempts per minute per client (see Program.cs).
+        // VULN-SPOT #11: Brute Force / Missing Rate Limiting (CWE-307) — INTENTIONAL FOR TRAINING
+        //   Register and login have no rate limiter at all, so password guessing and account farming are unlimited.
+        //   (/guest keeps its limiter so the training instance stays usable; see also CWE-348 for bypassing it.)
+        //   Fix: apply a per-IP/per-account fixed-window limiter to login and register.
         // Used by the web app: creates a guest player automatically, so no sign-in screen is needed.
         group.MapPost("/guest", Guest).RequireRateLimiting(RateLimitPolicy);
         // Register/login stay available for the API (e.g. the seeded admin account), but the UI doesn't use them.
-        group.MapPost("/register", Register).RequireRateLimiting(RateLimitPolicy);
-        group.MapPost("/login", Login).RequireRateLimiting(RateLimitPolicy);
+        group.MapPost("/register", Register);
+        group.MapPost("/login", Login);
         group.MapGet("/me", Me).RequireAuthorization();
         return app;
     }
@@ -71,14 +78,12 @@ public static class AuthEndpoints
             return Results.Conflict(new ErrorResponse("Username is already taken."));
         }
 
-        // VULN-SPOT #12: Weak Password Hashing (CWE-916)
-        //   Typical mistake: storing plain text, or a fast unsalted hash (MD5/SHA-1/SHA-256).
-        //   Here: BCrypt, which is salted and deliberately slow (work factor 11).
+        // VULN-SPOT #12: Weak Password Hashing (CWE-916) — see PasswordRules.Hash above.
         var user = new User
         {
             Username = username,
             NormalizedUsername = normalized,
-            PasswordHash = BCrypt.Net.BCrypt.HashPassword(request.Password, PasswordRules.BcryptWorkFactor),
+            PasswordHash = PasswordRules.Hash(request.Password!),
             Role = Roles.User,
             CreatedAt = time.GetUtcNow().UtcDateTime,
         };
@@ -108,7 +113,7 @@ public static class AuthEndpoints
                 Username = username,
                 NormalizedUsername = username,
                 // Random password that is never shown: guests can't sign in with a password, only via their token.
-                PasswordHash = BCrypt.Net.BCrypt.HashPassword(RandomNumberGenerator.GetHexString(32), PasswordRules.BcryptWorkFactor),
+                PasswordHash = PasswordRules.Hash(RandomNumberGenerator.GetHexString(32)),
                 Role = Roles.User,
                 CreatedAt = time.GetUtcNow().UtcDateTime,
             };
@@ -140,10 +145,18 @@ public static class AuthEndpoints
         var normalized = request.Username.ToLowerInvariant();
         var user = await db.Users.AsNoTracking().FirstOrDefaultAsync(u => u.NormalizedUsername == normalized, ct);
 
-        var passwordOk = BCrypt.Net.BCrypt.Verify(request.Password, user?.PasswordHash ?? DummyHash.Value);
-        if (user is null || !passwordOk)
+        // VULN-SPOT #10: User Enumeration (CWE-204) — INTENTIONAL FOR TRAINING
+        //   The two branches return different status codes and messages, so an attacker learns which usernames exist.
+        if (user is null)
         {
-            return Results.Json(new ErrorResponse(InvalidCredentials), statusCode: StatusCodes.Status401Unauthorized);
+            return Results.Json(new ErrorResponse($"No account with username '{request.Username}' exists."),
+                statusCode: StatusCodes.Status404NotFound);
+        }
+
+        if (!PasswordRules.Verify(request.Password, user.PasswordHash))
+        {
+            return Results.Json(new ErrorResponse($"Wrong password for user '{request.Username}'."),
+                statusCode: StatusCodes.Status401Unauthorized);
         }
 
         return Results.Ok(tokens.CreateResponse(user));

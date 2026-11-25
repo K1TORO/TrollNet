@@ -19,11 +19,12 @@ builder.Services.AddHealthChecks();
 var app = builder.Build();
 
 app.UseTrollNetForwardedHeaders();
-// VULN-SPOT #18: Error Message Information Leak (CWE-209)
-//   Typical mistake: returning stack traces, SQL errors or exception messages to the client.
-//   Here: unhandled exceptions become a generic ProblemDetails response; details go only to the server log.
-//   (The same is configured in AuthService and GameService.)
-app.UseExceptionHandler();
+// VULN-SPOT #18: Error Message Information Leak (CWE-209) — INTENTIONAL FOR TRAINING
+//   Unhandled exceptions return the developer exception page: stack traces, file paths, query details and
+//   inner exception messages. Try a broken SQLi query such as /api/posts/search?query=' to see the SQL error.
+//   Fix: UseExceptionHandler() with a generic ProblemDetails body and log details server-side only.
+//   (The same insecure middleware is configured in AuthService and GameService.)
+app.UseDeveloperExceptionPage();
 app.UseAuthentication();
 app.UseAuthorization();
 app.UseRateLimiter();

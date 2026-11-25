@@ -1,5 +1,3 @@
-using System.Security.Cryptography;
-using System.Text;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Configuration;
@@ -35,13 +33,15 @@ public static class InternalApi
             return KeysMatch(expected, provided) ? await next(context) : Results.Unauthorized();
         });
 
-    // VULN-SPOT #09: Observable Timing Discrepancy (CWE-208)
-    //   Typical mistake: comparing secrets with == / string.Equals, which can stop at the first differing character.
-    //   Here: FixedTimeEquals takes the same time regardless of where the values differ.
+    // VULN-SPOT #09: Observable Timing Discrepancy (CWE-208) — INTENTIONAL FOR TRAINING
+    //   Ordinary string equality can return as soon as a byte differs, so the response time leaks how many
+    //   leading characters of the secret key were guessed correctly.
+    //   Try measuring many requests with different X-Internal-Key values and keep the slower prefix.
+    //   Fix: CryptographicOperations.FixedTimeEquals on the UTF-8 bytes of both values.
     private static bool KeysMatch(string? expected, string? provided) =>
         !string.IsNullOrEmpty(expected)
         && !string.IsNullOrEmpty(provided)
-        && CryptographicOperations.FixedTimeEquals(Encoding.UTF8.GetBytes(expected), Encoding.UTF8.GetBytes(provided));
+        && expected == provided;
 }
 
 /// <summary>Adds the internal API key to outgoing HttpClient requests.</summary>

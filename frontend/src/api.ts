@@ -38,6 +38,7 @@ export interface Objective {
   title: string;
   description: string;
   category: string;
+  tipId: string;
   difficulty: number;
   points: number;
   targetPostId: number | null;
@@ -45,6 +46,8 @@ export interface Objective {
   expiresAt: string;
   isCompleted: boolean;
   completedByUsername: string | null;
+  // VULN-SPOT #15: the secret flag is returned to every anonymous caller.
+  flag: string;
 }
 
 export interface SubmitResult {
@@ -74,10 +77,23 @@ export const SCORE_CHANGED_EVENT = 'trollnet:score-changed';
 
 const TOKEN_KEY = 'trollnet.token';
 
-// VULN-SPOT #19: Sensitive token in browser storage (CWE-922)
-//   Trade-off: localStorage is readable by any script on the page, so a single XSS bug (see #02)
-//   could leak the token. The alternative is an HttpOnly cookie, which in turn needs CSRF protection (#05).
-//   Here: XSS is mitigated by escaping + CSP, and tokens expire (Jwt:ExpiryMinutes).
+// VULN-SPOT #19: Sensitive token in browser storage (CWE-922) — INTENTIONAL FOR TRAINING
+//   The JWT lives in localStorage, so any script running on the page (including stored XSS from #02)
+//   can read it with localStorage.getItem('trollnet.token') and use it from anywhere.
+//   Fix: keep the session in an HttpOnly, Secure, SameSite cookie; JavaScript then cannot read it.
+const TOKEN_COOKIE = 'trollnet.token';
+
+function writeTokenCookie(token: string | null) {
+  // VULN-SPOT #05: CSRF (CWE-352) — INTENTIONAL FOR TRAINING
+  //   A JavaScript-readable cookie is also set. The API accepts the JWT from this cookie and the gateway
+  //   allows any CORS origin with credentials, so a malicious site can send authenticated requests
+  //   without knowing the token. There is no anti-forgery token.
+  //   Fix: HttpOnly + SameSite cookie and anti-forgery validation on state-changing requests.
+  const suffix = 'path=/; SameSite=None; Secure';
+  document.cookie = token
+    ? `${TOKEN_COOKIE}=${encodeURIComponent(token)}; ${suffix}`
+    : `${TOKEN_COOKIE}=; ${suffix}; Max-Age=0`;
+}
 
 export const tokenStore = {
   get(): string | null {
@@ -93,6 +109,7 @@ export const tokenStore = {
     } catch {
       /* storage unavailable: the session lasts until reload */
     }
+    writeTokenCookie(token);
   },
   clear() {
     try {
@@ -100,6 +117,7 @@ export const tokenStore = {
     } catch {
       /* ignore */
     }
+    writeTokenCookie(null);
   },
 };
 
@@ -126,11 +144,11 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
   const headers = new Headers(init.headers);
   if (init.body !== undefined) headers.set('Content-Type', 'application/json');
 
-  // VULN-SPOT #05: Cross-Site Request Forgery (CWE-352)
-  //   Typical mistake: authenticating with cookies the browser sends automatically, while
-  //   state-changing endpoints (POST/PUT/DELETE) skip anti-forgery token validation.
-  //   Here: the token is sent explicitly in the Authorization header, which another site cannot add.
-  //   If you ever switch to cookie auth, add anti-forgery tokens and SameSite cookies.
+  // VULN-SPOT #05: Cross-Site Request Forgery (CWE-352) — INTENTIONAL FOR TRAINING
+  //   The app sends the JWT in an Authorization header, but the API also accepts the cookie set above.
+  //   Combined with the gateway's permissive CORS policy, an attacker page can call POST/DELETE endpoints
+  //   with credentials: 'include' and no anti-forgery token is checked.
+  //   Fix: do not accept cookie auth for mutations, or require an anti-forgery token + SameSite cookies.
   const token = tokenStore.get();
   if (token) headers.set('Authorization', `Bearer ${token}`);
 

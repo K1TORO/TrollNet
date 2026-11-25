@@ -5,6 +5,7 @@ public sealed record ObjectiveTemplate(
     string Description,
     string Category,
     int Difficulty,
+    string TipId,
     string PostAuthor,
     string PostContent);
 
@@ -46,27 +47,30 @@ public static class ContentLibrary
         "I have so many questions.",
     ];
 
+    // TipId links each objective to the browser tip that actually helps solve it.
+    // Objective flags are currently exposed by vulnerability #15, so every objective
+    // points there. The field stays per-template so future challenge types can change it.
     public static readonly ObjectiveTemplate[] Objectives =
     [
         new("Operation Meme Storm",
             "A suspicious meme is trending. Find the flag hidden behind it before the moderator reviews the post.",
-            "Recon", 1, "meme_lord_42",
+            "Recon", 1, "15", "meme_lord_42",
             "BREAKING: this meme is about to go viral. Nothing to see here... or is there?"),
         new("The Bridge Toll",
             "The bridge keeper is guarding a secret. Capture the flag before the post is taken down.",
-            "Recon", 1, "bridge_keeper",
+            "Recon", 1, "15", "bridge_keeper",
             "None shall pass without paying the toll. Only the clever will find what I hide."),
         new("Silent Lurker",
             "A quiet account dropped a cryptic post. Work out what it is hiding and submit the flag.",
-            "Puzzle", 2, "lurker_supreme",
+            "Puzzle", 2, "15", "lurker_supreme",
             "Some secrets are in plain sight. Some are not. Moderators arriving soon."),
         new("Midnight Leak",
             "Rumour says a moderator left something behind in a late-night post. Retrieve the flag in time.",
-            "Investigation", 2, "night_owl_99",
+            "Investigation", 2, "15", "night_owl_99",
             "Posting this before I forget... wait, should I have posted this?"),
         new("Throne of the Cat Overlord",
             "The cat overlord announced a new decree. Prove you can take the throne by capturing its flag.",
-            "Challenge", 3, "cat_overlord",
+            "Challenge", 3, "15", "cat_overlord",
             "By royal decree: all humans must provide treats. The throne is guarded."),
     ];
 

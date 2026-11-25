@@ -114,6 +114,7 @@ public sealed class GameEngineService(
             Category = template.Category,
             Difficulty = template.Difficulty,
             Points = ContentLibrary.PointsFor(template.Difficulty),
+            TipId = template.TipId,
             TargetPostId = postId,
             Flag = GenerateFlag(),
             CreatedAt = now,

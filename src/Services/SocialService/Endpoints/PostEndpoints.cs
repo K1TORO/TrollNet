@@ -16,6 +16,7 @@ public static class PostEndpoints
         posts.MapGet("/trending", GetTrending);
         posts.MapGet("/search", Search);
         posts.MapGet("/{id:int}", GetPost);
+        posts.MapGet("/attachment", GetAttachment);
         posts.MapPost("/", CreatePost).RequireAuthorization().RequireRateLimiting(WriteRateLimitPolicy);
         posts.MapDelete("/{id:int}", DeletePost).RequireAuthorization();
         posts.MapPost("/{id:int}/comments", AddComment).RequireAuthorization().RequireRateLimiting(WriteRateLimitPolicy);
@@ -59,17 +60,13 @@ public static class PostEndpoints
             return Results.BadRequest(new ErrorResponse($"Search query must be 1-{ContentRules.MaxSearchLength} characters."));
         }
 
-        // VULN-SPOT #01: SQL Injection (CWE-89)
-        //   Typical mistake: building the SQL text from user input (string concatenation / interpolation).
-        //   Here: EF Core sends the pattern as a bound parameter, never as SQL text.
-        //   LIKE wildcards typed by the user are escaped so they match literally.
-        var pattern = $"%{EscapeLikePattern(term)}%";
-        var items = await db.Posts.AsNoTracking()
-            .Where(p => EF.Functions.ILike(p.Content, pattern, @"\"))
-            .OrderByDescending(p => p.CreatedAt)
-            .Take(ContentRules.MaxPageSize)
-            .Select(PostDto.Projection)
-            .ToListAsync(ct);
+        // VULN-SPOT #01: SQL Injection (CWE-89) — INTENTIONAL FOR TRAINING
+        //   The search term is interpolated directly into the SQL text instead of being bound as a parameter.
+        //   Try: /api/posts/search?query=' OR 1=1 --        (returns every post)
+        //        /api/posts/search?query=' UNION SELECT 0,'admin','x','pwned',true,now(),0 --  (injects a row)
+        //   Fix: EF.Functions.ILike(p.Content, $"%{escaped}%", @"\") with a bound parameter, escaping LIKE wildcards.
+        var sql = $"SELECT * FROM \"Posts\" WHERE \"Content\" ILIKE '%{term}%' ORDER BY \"CreatedAt\" DESC";
+        var items = await db.Posts.FromSqlRaw(sql).AsNoTracking().ToListAsync(ct);
 
         return Results.Ok(items);
     }
@@ -89,6 +86,24 @@ public static class PostEndpoints
         return post is null ? NotFound("Post not found.") : Results.Ok(post);
     }
 
+    // VULN-SPOT #07: Path Traversal / Local File Inclusion (CWE-22) — INTENTIONAL FOR TRAINING
+    //   A "download attachment" feature joins the user-supplied name onto the app directory and reads it
+    //   without checking that the resolved path is still inside that directory.
+    //   Try: /api/posts/attachment?name=../../../../etc/passwd
+    //        /api/posts/attachment?name=../appsettings.json
+    //   Fix: serve files by generated id, or resolve the full path and require it to start with the root directory.
+    private static async Task<IResult> GetAttachment(string? name, CancellationToken ct)
+    {
+        if (string.IsNullOrWhiteSpace(name))
+        {
+            return Results.BadRequest(new ErrorResponse("Attachment name is required."));
+        }
+
+        var path = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, name));
+        var contents = await File.ReadAllTextAsync(path, ct);
+        return Results.Text(contents, "text/plain");
+    }
+
     private static async Task<IResult> CreatePost(CreatePostRequest request, ClaimsPrincipal user, SocialDbContext db, TimeProvider time, CancellationToken ct)
     {
         var content = request.Content?.Trim();
@@ -97,17 +112,20 @@ public static class PostEndpoints
             return Results.BadRequest(new ErrorResponse($"Post must be 1-{ContentRules.MaxPostLength} characters."));
         }
 
-        // VULN-SPOT #04: Mass Assignment (CWE-915)
-        //   Typical mistake: binding the request body straight onto the entity, letting the client set
-        //   fields like AuthorId or IsTrending.
-        //   Here: the request DTO only carries Content. Author comes from the validated token.
+        // VULN-SPOT #04: Mass Assignment (CWE-915) — INTENTIONAL FOR TRAINING
+        //   Every field present in the JSON body is copied onto the entity, including fields that must not be
+        //   client-controlled (AuthorId, AuthorName, IsTrending, CreatedAt).
+        //   Try: POST /api/posts  {"content":"hi","authorId":999,"authorName":"admin","isTrending":true}
+        //   Fix: bind only a DTO with Content, and take author/timestamp/trending state from the token and server.
         var post = new Post
         {
-            AuthorId = user.GetUserId(),
-            AuthorName = user.GetUserName(),
+            AuthorId = request.AuthorId ?? user.GetUserId(),
+            AuthorName = request.AuthorName ?? user.GetUserName(),
             Content = content,
-            CreatedAt = time.GetUtcNow().UtcDateTime,
+            IsTrending = request.IsTrending ?? false,
+            CreatedAt = request.CreatedAt ?? time.GetUtcNow().UtcDateTime,
         };
+
         db.Posts.Add(post);
         await db.SaveChangesAsync(ct);
 
@@ -115,7 +133,7 @@ public static class PostEndpoints
             new PostDto(post.Id, post.AuthorId, post.AuthorName, post.Content, post.IsTrending, post.CreatedAt, 0));
     }
 
-    private static async Task<IResult> DeletePost(int id, ClaimsPrincipal user, SocialDbContext db, CancellationToken ct)
+    private static async Task<IResult> DeletePost(int id, SocialDbContext db, CancellationToken ct)
     {
         var post = await db.Posts.FirstOrDefaultAsync(p => p.Id == id, ct);
         if (post is null)
@@ -123,15 +141,10 @@ public static class PostEndpoints
             return NotFound("Post not found.");
         }
 
-        // VULN-SPOT #03: IDOR / Broken Access Control (CWE-639)
-        //   Typical mistake: checking only that the caller is logged in ([Authorize]) and then acting on
-        //   whatever id is in the URL.
-        //   Here: ownership (or moderator role) is verified before deleting.
-        if (!CanModify(user, post.AuthorId))
-        {
-            return Forbidden("You can only delete your own posts.");
-        }
-
+        // VULN-SPOT #03: IDOR / Broken Access Control (CWE-639) — INTENTIONAL FOR TRAINING
+        //   The endpoint requires a valid token, but never checks that this user owns the post (or is a moderator).
+        //   Any logged-in player can delete any post by changing the id: DELETE /api/posts/1
+        //   Fix: compare post.AuthorId with user.GetUserId() (or allow only moderator/admin) before deleting.
         db.Posts.Remove(post);
         await db.SaveChangesAsync(ct);
         return Results.NoContent();
@@ -164,7 +177,7 @@ public static class PostEndpoints
         return Results.Created($"/api/posts/{id}", CommentDto.From(comment));
     }
 
-    private static async Task<IResult> DeleteComment(int id, ClaimsPrincipal user, SocialDbContext db, CancellationToken ct)
+    private static async Task<IResult> DeleteComment(int id, SocialDbContext db, CancellationToken ct)
     {
         var comment = await db.Comments.FirstOrDefaultAsync(c => c.Id == id, ct);
         if (comment is null)
@@ -172,26 +185,13 @@ public static class PostEndpoints
             return NotFound("Comment not found.");
         }
 
-        // VULN-SPOT #03: IDOR / Broken Access Control (CWE-639). Same ownership check as for posts.
-        if (!CanModify(user, comment.AuthorId))
-        {
-            return Forbidden("You can only delete your own comments.");
-        }
-
+        // VULN-SPOT #03: IDOR / Broken Access Control (CWE-639) — INTENTIONAL FOR TRAINING
+        //   Same missing ownership check as for posts: DELETE /api/comments/1 works for any authenticated user.
+        //   Fix: verify comment.AuthorId == user.GetUserId() or that the caller is a moderator/admin.
         db.Comments.Remove(comment);
         await db.SaveChangesAsync(ct);
         return Results.NoContent();
     }
 
-    /// <summary>Owners can modify their own content; moderators and admins can modify anything.</summary>
-    private static bool CanModify(ClaimsPrincipal user, int authorId) =>
-        user.IsModerator() || (authorId != ContentRules.SystemAuthorId && authorId == user.GetUserId());
-
-    private static string EscapeLikePattern(string value) =>
-        value.Replace(@"\", @"\\").Replace("%", @"\%").Replace("_", @"\_");
-
     private static IResult NotFound(string message) => Results.NotFound(new ErrorResponse(message));
-
-    private static IResult Forbidden(string message) =>
-        Results.Json(new ErrorResponse(message), statusCode: StatusCodes.Status403Forbidden);
 }

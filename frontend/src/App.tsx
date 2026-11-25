@@ -5,19 +5,22 @@ import { FeedView } from './components/FeedView';
 import { LeaderboardView } from './components/LeaderboardView';
 import { ObjectivesView } from './components/ObjectivesView';
 import { SearchView } from './components/SearchView';
+import { TipsView } from './components/TipsView';
 
-type Tab = 'feed' | 'search' | 'objectives' | 'leaderboard';
+type Tab = 'feed' | 'search' | 'objectives' | 'tips' | 'leaderboard';
 
 const TABS: { id: Tab; label: string }[] = [
   { id: 'feed', label: 'Feed' },
   { id: 'search', label: 'Search' },
   { id: 'objectives', label: 'Objectives' },
+  { id: 'tips', label: 'Tips' },
   { id: 'leaderboard', label: 'Leaderboard' },
 ];
 
 export default function App() {
   const { user, error, retry } = useAuth();
   const [tab, setTab] = useState<Tab>('feed');
+  const [focusedTipId, setFocusedTipId] = useState<string | null>(null);
 
   return (
     <div className="app">
@@ -30,7 +33,10 @@ export default function App() {
               key={t.id}
               className={t.id === tab ? 'tab active' : 'tab'}
               aria-current={t.id === tab ? 'page' : undefined}
-              onClick={() => setTab(t.id)}
+              onClick={() => {
+                if (t.id === 'tips') setFocusedTipId(null);
+                setTab(t.id);
+              }}
             >
               {t.label}
             </button>
@@ -57,7 +63,19 @@ export default function App() {
 
         {tab === 'feed' && <FeedView />}
         {tab === 'search' && <SearchView />}
-        {tab === 'objectives' && <ObjectivesView />}
+        {tab === 'objectives' && (
+          <ObjectivesView
+            onOpenTips={() => {
+              setFocusedTipId(null);
+              setTab('tips');
+            }}
+            onOpenTip={(tipId) => {
+              setFocusedTipId(tipId);
+              setTab('tips');
+            }}
+          />
+        )}
+        {tab === 'tips' && <TipsView focusId={focusedTipId} />}
         {tab === 'leaderboard' && <LeaderboardView />}
       </main>
     </div>

@@ -6,16 +6,19 @@ namespace SocialService.Endpoints;
 
 /// <summary>
 /// Endpoints used by the game engine to publish generated content.
-/// Protected by the internal API key and not routed by the gateway.
+/// INTENTIONALLY exposed without authentication for training (see VULN-SPOT #08).
 /// </summary>
 public static class InternalEndpoints
 {
     public static IEndpointRouteBuilder MapInternalEndpoints(this IEndpointRouteBuilder app)
     {
-        // VULN-SPOT #08: Missing Authentication for Critical Function (CWE-306)
-        //   Typical mistake: "internal" endpoints left unauthenticated on the assumption nobody can reach them.
-        //   Here: two layers. The gateway never routes /internal/*, and every call must carry the internal API key.
-        var group = app.MapGroup("/internal/posts").RequireInternalApiKey();
+        // VULN-SPOT #08: Missing Authentication for Critical Function (CWE-306) — INTENTIONAL FOR TRAINING
+        //   "Internal" endpoints are left unauthenticated on the assumption nobody can reach them.
+        //   Both layers are removed here: no API key filter, and the gateway also routes /internal/posts/*.
+        //   Try: curl -X POST http://localhost:8080/internal/posts -H 'Content-Type: application/json' \
+        //          -d '{"authorName":"intruder","content":"pwned","isTrending":true}'
+        //   Fix: require the internal API key AND keep /internal/* unrouted by the public gateway.
+        var group = app.MapGroup("/internal/posts");
         group.MapPost("/", CreatePost);
         group.MapDelete("/{id:int}", DeletePost);
         group.MapPost("/{id:int}/comments", CreateComment);

@@ -337,6 +337,80 @@ button.danger {
   border-left: 2px solid var(--border);
 }
 
+.objective-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin: 6px 0;
+}
+
+.leaked-flag {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 6px;
+}
+
+/* Cosmetic only: the flag is still in the DOM and API response (training spot #15). */
+.blurred {
+  filter: blur(5px);
+  user-select: none;
+  cursor: help;
+}
+
+/* Training tips */
+
+.tip-search {
+  margin-bottom: 4px;
+}
+
+.tip-card {
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+  padding: 10px 14px;
+}
+
+.tip-card summary {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  cursor: pointer;
+  list-style: none;
+}
+
+.tip-card summary::-webkit-details-marker {
+  display: none;
+}
+
+.tip-card summary::before {
+  content: '▸';
+  color: var(--muted);
+}
+
+.tip-card[open] summary::before {
+  content: '▾';
+}
+
+.tip-id {
+  color: var(--accent-text);
+  font-variant-numeric: tabular-nums;
+}
+
+.tip-body {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px solid var(--border);
+}
+
+.tip-body code {
+  font-size: 0.85rem;
+  overflow-wrap: anywhere;
+}
+
 /* Leaderboard */
 
 .leaderboard {

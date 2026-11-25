@@ -23,6 +23,14 @@ public sealed record PostDetailDto(
     DateTime CreatedAt,
     IReadOnlyList<CommentDto> Comments);
 
-public sealed record CreatePostRequest(string? Content);
+// VULN-SPOT #04: Mass Assignment (CWE-915) — INTENTIONAL FOR TRAINING
+// These extra fields are accepted from the client so they can be copied onto the Post entity.
+// A safe request DTO would contain Content only.
+public sealed record CreatePostRequest(
+    string? Content,
+    int? AuthorId,
+    string? AuthorName,
+    bool? IsTrending,
+    DateTime? CreatedAt);
 
 public sealed record CreateCommentRequest(string? Content);

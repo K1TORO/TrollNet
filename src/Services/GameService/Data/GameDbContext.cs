@@ -11,6 +11,9 @@ public sealed class Objective
     public int Difficulty { get; set; }
     public int Points { get; set; }
 
+    /// <summary>Id of the browser training tip that matches this objective.</summary>
+    public string TipId { get; set; } = "01";
+
     /// <summary>Post in the social service this objective is about.</summary>
     public int? TargetPostId { get; set; }
 
@@ -51,6 +54,7 @@ public sealed class GameDbContext(DbContextOptions<GameDbContext> options) : DbC
             objective.Property(o => o.Title).HasMaxLength(100);
             objective.Property(o => o.Description).HasMaxLength(1000);
             objective.Property(o => o.Category).HasMaxLength(50);
+            objective.Property(o => o.TipId).HasMaxLength(2);
             objective.Property(o => o.Flag).HasMaxLength(100);
             objective.Property(o => o.CompletedByUsername).HasMaxLength(32);
             objective.HasIndex(o => new { o.IsCompleted, o.ExpiresAt });

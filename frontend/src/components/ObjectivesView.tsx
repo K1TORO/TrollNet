@@ -4,7 +4,7 @@ import { useAuth } from '../auth';
 import { formatCountdown, useNow, usePolling } from '../utils';
 import { PostCard } from './PostCard';
 
-export function ObjectivesView() {
+export function ObjectivesView({ onOpenTips, onOpenTip }: { onOpenTips: () => void; onOpenTip: (tipId: string) => void }) {
   const [objectives, setObjectives] = useState<Objective[]>([]);
   const [loaded, setLoaded] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -31,6 +31,9 @@ export function ObjectivesView() {
           New trending posts appear regularly. Capture each objective's flag before the moderator reviews the
           post. First troll to submit the right flag gets the points.
         </p>
+        <button className="link small" onClick={onOpenTips}>
+          Stuck? Open the training tips
+        </button>
       </div>
 
       {error && <p className="error">{error}</p>}
@@ -40,7 +43,13 @@ export function ObjectivesView() {
 
       <div className="list">
         {objectives.map((o) => (
-          <ObjectiveCard key={o.id} objective={o} now={now} onChanged={refresh} />
+          <ObjectiveCard
+            key={o.id}
+            objective={o}
+            now={now}
+            onChanged={refresh}
+            onOpenTip={onOpenTip}
+          />
         ))}
       </div>
     </div>
@@ -51,11 +60,13 @@ interface CardProps {
   objective: Objective;
   now: number;
   onChanged: () => void;
+  onOpenTip: (tipId: string) => void;
 }
 
-function ObjectiveCard({ objective: o, now, onChanged }: CardProps) {
+function ObjectiveCard({ objective: o, now, onChanged, onOpenTip }: CardProps) {
   const { user } = useAuth();
   const [flag, setFlag] = useState('');
+  const [revealFlag, setRevealFlag] = useState(false);
   const [result, setResult] = useState<{ ok: boolean; text: string } | null>(null);
   const [busy, setBusy] = useState(false);
   const [target, setTarget] = useState<Post | null>(null);
@@ -118,11 +129,28 @@ function ObjectiveCard({ objective: o, now, onChanged }: CardProps) {
       </p>
       <p>{o.description}</p>
 
-      {o.targetPostId !== null && open && (
-        <button className="link small" onClick={toggleTarget} aria-expanded={showTarget}>
-          {showTarget ? 'Hide target post' : `Show target post #${o.targetPostId}`}
+      {/* VULN-SPOT #15: the anonymous objectives API leaks the secret flag to every player.
+          The blur below is only cosmetic: the value is still in the DOM and the API response. */}
+      <p className="accent-text small leaked-flag">
+        Leaked flag:{' '}
+        <span className={revealFlag ? '' : 'blurred'} title={revealFlag ? undefined : 'Blurred in the UI only'}>
+          {o.flag}
+        </span>{' '}
+        <button className="link small" onClick={() => setRevealFlag((v) => !v)} aria-expanded={revealFlag}>
+          {revealFlag ? 'Hide' : 'Reveal'}
         </button>
-      )}
+      </p>
+
+      <div className="objective-actions">
+        <button className="link small" onClick={() => onOpenTip(o.tipId)}>
+          Need a hint? (#{o.tipId})
+        </button>
+        {o.targetPostId !== null && open && (
+          <button className="link small" onClick={toggleTarget} aria-expanded={showTarget}>
+            {showTarget ? 'Hide target post' : `Show target post #${o.targetPostId}`}
+          </button>
+        )}
+      </div>
       {showTarget && target && <PostCard post={target} initiallyExpanded />}
 
       {open && (

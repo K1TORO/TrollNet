@@ -102,11 +102,12 @@ export function PostCard({ post, onDeleted, initiallyExpanded = false }: Props) 
       </header>
 
       {/*
-        VULN-SPOT #02: Cross-Site Scripting, stored XSS (CWE-79)
-          Typical mistake: rendering user content as raw HTML (dangerouslySetInnerHTML / innerHTML).
-          Here: content is rendered as text, so React escapes it. A strict CSP in nginx.conf is a second layer.
+        VULN-SPOT #02: Cross-Site Scripting, stored XSS (CWE-79) — INTENTIONAL FOR TRAINING
+          User content is injected as raw HTML with dangerouslySetInnerHTML, and nginx's weak CSP allows
+          inline handlers. Post e.g. <img src=x onerror="alert(document.domain)"> as a post/comment.
+          Fix: render as text ({post.content}) or sanitize with a strict allow-list before rendering.
       */}
-      <p className="post-content">{post.content}</p>
+      <p className="post-content" dangerouslySetInnerHTML={{ __html: post.content }} />
 
       {!initiallyExpanded && (
         <button className="link small" onClick={() => setExpanded((v) => !v)} aria-expanded={expanded}>
@@ -130,8 +131,8 @@ export function PostCard({ post, onDeleted, initiallyExpanded = false }: Props) 
                     <strong>@{c.authorName}</strong>{' '}
                     <span className="muted small">{formatRelative(c.createdAt)}</span>
                   </div>
-                  {/* VULN-SPOT #02: Cross-Site Scripting (CWE-79). Comments are also rendered as escaped text. */}
-                  <p>{c.content}</p>
+                  {/* VULN-SPOT #02: stored XSS (CWE-79). Comments are also injected as raw HTML. */}
+                  <p dangerouslySetInnerHTML={{ __html: c.content }} />
                   {canModify(c.authorId) && (
                     <button className="link danger small" onClick={() => deleteComment(c.id)}>
                       Delete

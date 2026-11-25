@@ -1,27 +1,28 @@
 using System.Security.Claims;
-using System.Security.Cryptography;
-using System.Text;
 using GameService.Data;
 using Microsoft.EntityFrameworkCore;
 using TrollNet.Shared;
 
 namespace GameService.Endpoints;
 
-// VULN-SPOT #15: Exposure of Sensitive Information (CWE-200)
-//   Typical mistake: returning the database entity directly, which would include the secret Flag.
-//   Here: a dedicated DTO lists exactly the fields the client may see.
+// VULN-SPOT #15: Exposure of Sensitive Information (CWE-200) — INTENTIONAL FOR TRAINING
+//   The public objectives DTO includes the secret Flag, and GET /api/objectives requires no authentication.
+//   Anyone can read every flag and submit it for points without solving the challenge.
+//   Fix: never put Flag on a public DTO; keep the admin-only /flag endpoint for teacher testing.
 public sealed record ObjectiveDto(
     int Id,
     string Title,
     string Description,
     string Category,
+    string TipId,
     int Difficulty,
     int Points,
     int? TargetPostId,
     DateTime CreatedAt,
     DateTime ExpiresAt,
     bool IsCompleted,
-    string? CompletedByUsername);
+    string? CompletedByUsername,
+    string Flag);
 
 public sealed record SubmitFlagRequest(string? Flag);
 
@@ -30,6 +31,10 @@ public sealed record SubmitFlagResponse(bool Correct, int PointsAwarded, string 
 public sealed record ScoreDto(int UserId, string Username, int Points);
 
 public sealed record FlagDto(int ObjectiveId, string Flag);
+
+public sealed record LinkPreviewRequest(string? Url);
+
+public sealed record LinkPreviewDto(string Url, int StatusCode, string BodyPreview);
 
 public static class GameEndpoints
 {
@@ -41,8 +46,10 @@ public static class GameEndpoints
     {
         var objectives = app.MapGroup("/api/objectives");
         objectives.MapGet("/", GetObjectives);
-        // VULN-SPOT #11: Brute Force / Missing Rate Limiting (CWE-307). Flag guessing is limited to 10 tries per minute per user.
-        objectives.MapPost("/{id:int}/submit", SubmitFlag).RequireAuthorization().RequireRateLimiting(SubmitRateLimitPolicy);
+        // VULN-SPOT #11: Brute Force / Missing Rate Limiting (CWE-307) — INTENTIONAL FOR TRAINING
+        //   No rate limiter on flag submission, so guesses can be sent as fast as the network allows.
+        //   Fix: re-apply SubmitRateLimitPolicy (10 guesses/minute per user) or use exponential backoff.
+        objectives.MapPost("/{id:int}/submit", SubmitFlag).RequireAuthorization();
         // Lets teachers verify the scoring flow end-to-end. Admin only.
         objectives.MapGet("/{id:int}/flag", RevealFlag).RequireAuthorization(Policies.Admin);
 
@@ -50,7 +57,31 @@ public static class GameEndpoints
         scores.MapGet("/leaderboard", GetLeaderboard);
         scores.MapGet("/me", GetMyScore).RequireAuthorization();
 
+        // VULN-SPOT #06: Server-Side Request Forgery (CWE-918) — INTENTIONAL FOR TRAINING
+        app.MapPost("/api/link-preview", PreviewLink);
+
         return app;
+    }
+
+    private static async Task<IResult> PreviewLink(LinkPreviewRequest request, IHttpClientFactory httpFactory, CancellationToken ct)
+    {
+        var url = request.Url?.Trim();
+        if (string.IsNullOrEmpty(url))
+        {
+            return Results.BadRequest(new ErrorResponse("URL is required."));
+        }
+
+        // VULN-SPOT #06: Server-Side Request Forgery (CWE-918) — INTENTIONAL FOR TRAINING
+        //   The server fetches any absolute URL supplied by the client: no scheme/host allow-list, no blocking
+        //   of private IP ranges, redirects are followed automatically.
+        //   Try: POST /api/link-preview {"url":"http://social-service:8080/health"}
+        //        POST /api/link-preview {"url":"http://gateway:8080/api/objectives"}
+        //   Fix: allow-list schemes/hosts, resolve DNS and reject private/link-local ranges, disable redirects.
+        using var client = httpFactory.CreateClient();
+        using var response = await client.GetAsync(url, HttpCompletionOption.ResponseHeadersRead, ct);
+        var body = await response.Content.ReadAsStringAsync(ct);
+        var preview = body[..Math.Min(body.Length, 500)];
+        return Results.Ok(new LinkPreviewDto(url, (int)response.StatusCode, preview));
     }
 
     private static async Task<IResult> GetObjectives(GameDbContext db, TimeProvider time, CancellationToken ct)
@@ -61,8 +92,8 @@ public static class GameEndpoints
             .OrderBy(o => o.IsCompleted).ThenBy(o => o.ExpiresAt).ThenByDescending(o => o.CompletedAt)
             .Take(50)
             .Select(o => new ObjectiveDto(
-                o.Id, o.Title, o.Description, o.Category, o.Difficulty, o.Points, o.TargetPostId,
-                o.CreatedAt, o.ExpiresAt, o.IsCompleted, o.CompletedByUsername))
+                o.Id, o.Title, o.Description, o.Category, o.TipId, o.Difficulty, o.Points, o.TargetPostId,
+                o.CreatedAt, o.ExpiresAt, o.IsCompleted, o.CompletedByUsername, o.Flag))
             .ToListAsync(ct);
 
         return Results.Ok(items);
@@ -76,7 +107,7 @@ public static class GameEndpoints
             return Results.BadRequest(new ErrorResponse("Flag is required."));
         }
 
-        var objective = await db.Objectives.AsNoTracking().FirstOrDefaultAsync(o => o.Id == id, ct);
+        var objective = await db.Objectives.FirstOrDefaultAsync(o => o.Id == id, ct);
         if (objective is null)
         {
             return Results.NotFound(new ErrorResponse("Objective not found."));
@@ -102,39 +133,30 @@ public static class GameEndpoints
         var username = user.GetUserName();
         var points = objective.Points;
 
-        await using var transaction = await db.Database.BeginTransactionAsync(ct);
+        // VULN-SPOT #14: Race Condition, TOCTOU (CWE-362) — INTENTIONAL FOR TRAINING
+        //   The "is it already captured?" check and the write are separate operations with no transaction
+        //   and no conditional UPDATE. Two parallel correct submissions both see IsCompleted == false,
+        //   both set the winner to themselves, and both add the points.
+        //   Fix: one atomic `UPDATE ... WHERE NOT IsCompleted` inside a transaction; only one row can be claimed.
+        objective.IsCompleted = true;
+        objective.CompletedByUserId = userId;
+        objective.CompletedByUsername = username;
+        objective.CompletedAt = now;
+        await db.SaveChangesAsync(ct);
 
-        // VULN-SPOT #14: Race Condition, TOCTOU (CWE-362)
-        //   Typical mistake: "read IsCompleted, then write" in two steps. Parallel requests can all pass the
-        //   check and award points several times.
-        //   Here: a single conditional UPDATE claims the objective atomically. Only one request can succeed.
-        var claimed = await db.Objectives
-            .Where(o => o.Id == id && !o.IsCompleted && o.ExpiresAt > now)
-            .ExecuteUpdateAsync(s => s
-                .SetProperty(o => o.IsCompleted, true)
-                .SetProperty(o => o.CompletedByUserId, userId)
-                .SetProperty(o => o.CompletedByUsername, username)
-                .SetProperty(o => o.CompletedAt, now), ct);
-
-        if (claimed == 0)
-        {
-            return Results.Conflict(new ErrorResponse("Someone else captured this flag first."));
-        }
-
-        var updated = await db.Scores
-            .Where(s => s.UserId == userId)
-            .ExecuteUpdateAsync(s => s
-                .SetProperty(x => x.Points, x => x.Points + points)
-                .SetProperty(x => x.Username, username)
-                .SetProperty(x => x.UpdatedAt, now), ct);
-
-        if (updated == 0)
+        var score = await db.Scores.FirstOrDefaultAsync(s => s.UserId == userId, ct);
+        if (score is null)
         {
             db.Scores.Add(new Score { UserId = userId, Username = username, Points = points, UpdatedAt = now });
-            await db.SaveChangesAsync(ct);
         }
+        else
+        {
+            score.Points += points;
+            score.Username = username;
+            score.UpdatedAt = now;
+        }
+        await db.SaveChangesAsync(ct);
 
-        await transaction.CommitAsync(ct);
         return Results.Ok(new SubmitFlagResponse(true, points, $"Flag captured! +{points} points."));
     }
 
@@ -166,7 +188,9 @@ public static class GameEndpoints
         return Results.Ok(new ScoreDto(userId, user.GetUserName(), score?.Points ?? 0));
     }
 
-    // VULN-SPOT #09: Observable Timing Discrepancy (CWE-208). Constant-time comparison of the secret flag.
-    private static bool FlagsMatch(string expected, string provided) =>
-        CryptographicOperations.FixedTimeEquals(Encoding.UTF8.GetBytes(expected), Encoding.UTF8.GetBytes(provided));
+    // VULN-SPOT #09: Observable Timing Discrepancy (CWE-208) — INTENTIONAL FOR TRAINING
+    //   Plain string equality may stop at the first differing character, leaking the flag one byte at a time
+    //   through response-time measurements (with no rate limiter on /submit, see #11).
+    //   Fix: CryptographicOperations.FixedTimeEquals over UTF-8 bytes of both strings.
+    private static bool FlagsMatch(string expected, string provided) => expected == provided;
 }

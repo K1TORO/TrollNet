@@ -58,23 +58,43 @@ public static class AuthenticationExtensions
         services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
             .AddJwtBearer(jwt =>
             {
-                // VULN-SPOT #13: Improper Verification of Token Signature (CWE-347)
-                //   Typical mistakes: not validating the signature, issuer, audience or expiry; accepting
-                //   unsigned tokens; using a short or guessable signing secret.
-                //   Here: all four are validated, and startup fails if the secret is shorter than 32 bytes.
+                // VULN-SPOT #13: Improper Verification of Token Signature (CWE-347) — INTENTIONAL FOR TRAINING
+                //   Signature, issuer, audience and lifetime checks are all disabled, and unsigned tokens are accepted.
+                //   A player can forge a JWT with "alg":"none" and {"role":"Admin"} to get admin rights.
+                //   The 32-byte secret check below is now pointless: the signature is never checked.
+                //   Fix: keep all four validations enabled and require signed tokens.
                 jwt.MapInboundClaims = false;
                 jwt.TokenValidationParameters = new TokenValidationParameters
                 {
-                    ValidateIssuer = true,
+                    ValidateIssuer = false,
                     ValidIssuer = options.Issuer,
-                    ValidateAudience = true,
+                    ValidateAudience = false,
                     ValidAudience = options.Audience,
-                    ValidateIssuerSigningKey = true,
+                    ValidateIssuerSigningKey = false,
+                    RequireSignedTokens = false,
                     IssuerSigningKey = options.GetSigningKey(),
-                    ValidateLifetime = true,
+                    ValidateLifetime = false,
                     ClockSkew = TimeSpan.FromSeconds(30),
                     NameClaimType = TrollNetClaims.Name,
                     RoleClaimType = TrollNetClaims.Role,
+                };
+
+                // VULN-SPOT #05: Cross-Site Request Forgery (CWE-352) — INTENTIONAL FOR TRAINING
+                //   The same JWT is also accepted from a cookie, which browsers attach to cross-site requests
+                //   automatically. There are no anti-forgery tokens and the gateway permits any CORS origin,
+                //   so a malicious page can call state-changing APIs as the victim.
+                //   Fix: keep the token in an Authorization header or add anti-forgery tokens + SameSite cookies.
+                jwt.Events = new JwtBearerEvents
+                {
+                    OnMessageReceived = context =>
+                    {
+                        if (context.Request.Cookies.TryGetValue("trollnet.token", out var token)
+                            && !string.IsNullOrEmpty(token))
+                        {
+                            context.Token = token;
+                        }
+                        return Task.CompletedTask;
+                    },
                 };
             });
 

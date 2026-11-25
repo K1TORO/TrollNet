@@ -15,11 +15,11 @@ builder.Services.AddSingleton(TimeProvider.System);
 
 builder.Services.Configure<GameEngineOptions>(builder.Configuration.GetSection(GameEngineOptions.SectionName));
 builder.Services.AddTransient<InternalApiKeyHandler>();
-// VULN-SPOT #06: Server-Side Request Forgery, SSRF (CWE-918)
-//   Typical mistake: a feature (link preview, image fetch, webhook) makes the server request a URL
-//   supplied by the user, letting them reach internal services or metadata endpoints.
-//   Here: the only outgoing HTTP client has a fixed base address from configuration; no URL comes from users.
-//   If you add such a feature: allow-list schemes/hosts, block private IP ranges, resolve DNS before checking.
+// VULN-SPOT #06: Server-Side Request Forgery, SSRF (CWE-918) — INTENTIONAL FOR TRAINING
+//   The generic HttpClient factory has no restrictions and is used by POST /api/link-preview with a
+//   client-supplied absolute URL. It can reach internal services on the Docker network and cloud metadata IPs.
+//   Fix: allow-list schemes/hosts, resolve DNS and reject private/link-local addresses, disable redirects.
+builder.Services.AddHttpClient();
 builder.Services.AddHttpClient<SocialClient>(client =>
     {
         var baseUrl = builder.Configuration["Services:Social"]
@@ -38,7 +38,10 @@ builder.Services.AddHealthChecks();
 var app = builder.Build();
 
 app.UseTrollNetForwardedHeaders();
-app.UseExceptionHandler();
+// VULN-SPOT #18: Error Message Information Leak (CWE-209) — INTENTIONAL FOR TRAINING
+//   Detailed developer exception pages are returned to clients (stack traces, file paths, SQL errors).
+//   Fix: app.UseExceptionHandler() with a generic ProblemDetails response; log details only on the server.
+app.UseDeveloperExceptionPage();
 app.UseAuthentication();
 app.UseAuthorization();
 app.UseRateLimiter();

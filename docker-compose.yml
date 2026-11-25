@@ -8,11 +8,12 @@ x-dotnet-service: &dotnet-service
     postgres:
       condition: service_healthy
 
-# VULN-SPOT #16: Hard-coded Credentials (CWE-798)
-#   Typical mistake: secrets written directly into compose files, appsettings.json or source code and committed.
-#   Here: secrets come from .env (git-ignored). The ":?" syntax refuses to start if one is missing.
+# VULN-SPOT #16: Hard-coded Credentials (CWE-798) — INTENTIONAL FOR TRAINING
+#   All secrets are committed literally in this file: JWT signing key, database password, internal API key
+#   and the teacher/admin account password. Anyone with the repo can forge tokens or log in as admin.
+#   Fix: load secrets from .env / a secret manager and never commit real values.
 x-jwt-env: &jwt-env
-  Jwt__Secret: ${JWT_SECRET:?Set JWT_SECRET in .env (see .env.example)}
+  Jwt__Secret: trollnet-training-jwt-secret-do-not-use-outside-the-lab
   Jwt__Issuer: trollnet-auth
   Jwt__Audience: trollnet
 
@@ -22,7 +23,8 @@ services:
     restart: unless-stopped
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-trollnet}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env (see .env.example)}
+      # VULN-SPOT #16: hard-coded database password (CWE-798).
+      POSTGRES_PASSWORD: trollnet_dev_password
       POSTGRES_DB: postgres
     volumes:
       - pgdata:/var/lib/postgresql/data
@@ -40,9 +42,10 @@ services:
       dockerfile: src/Services/AuthService/Dockerfile
     environment:
       <<: *jwt-env
-      ConnectionStrings__AuthDb: Host=postgres;Port=5432;Database=trollnet_auth;Username=${POSTGRES_USER:-trollnet};Password=${POSTGRES_PASSWORD}
-      Seed__AdminUsername: ${ADMIN_USERNAME:-admin}
-      Seed__AdminPassword: ${ADMIN_PASSWORD:-}
+      ConnectionStrings__AuthDb: Host=postgres;Port=5432;Database=trollnet_auth;Username=${POSTGRES_USER:-trollnet};Password=trollnet_dev_password
+      Seed__AdminUsername: admin
+      # VULN-SPOT #16: hard-coded admin password (CWE-798). Login with admin / admin1234.
+      Seed__AdminPassword: admin1234
 
   social-service:
     <<: *dotnet-service
@@ -51,8 +54,9 @@ services:
       dockerfile: src/Services/SocialService/Dockerfile
     environment:
       <<: *jwt-env
-      ConnectionStrings__SocialDb: Host=postgres;Port=5432;Database=trollnet_social;Username=${POSTGRES_USER:-trollnet};Password=${POSTGRES_PASSWORD}
-      InternalApi__Key: ${INTERNAL_API_KEY:?Set INTERNAL_API_KEY in .env (see .env.example)}
+      ConnectionStrings__SocialDb: Host=postgres;Port=5432;Database=trollnet_social;Username=${POSTGRES_USER:-trollnet};Password=trollnet_dev_password
+      # VULN-SPOT #16: hard-coded internal API key (CWE-798). Also no longer required on endpoints (#08).
+      InternalApi__Key: internal-api-key-for-training-only
 
   game-service:
     <<: *dotnet-service
@@ -61,8 +65,9 @@ services:
       dockerfile: src/Services/GameService/Dockerfile
     environment:
       <<: *jwt-env
-      ConnectionStrings__GameDb: Host=postgres;Port=5432;Database=trollnet_game;Username=${POSTGRES_USER:-trollnet};Password=${POSTGRES_PASSWORD}
-      InternalApi__Key: ${INTERNAL_API_KEY:?Set INTERNAL_API_KEY in .env (see .env.example)}
+      ConnectionStrings__GameDb: Host=postgres;Port=5432;Database=trollnet_game;Username=${POSTGRES_USER:-trollnet};Password=trollnet_dev_password
+      # VULN-SPOT #16: hard-coded internal API key (CWE-798). Also no longer required on endpoints (#08).
+      InternalApi__Key: internal-api-key-for-training-only
       Services__Social: http://social-service:8080/
       GameEngine__TickSeconds: ${GAME_TICK_SECONDS:-60}
       GameEngine__ObjectiveLifetimeMinutes: ${GAME_OBJECTIVE_LIFETIME_MINUTES:-10}
@@ -94,6 +99,27 @@ services:
       - "127.0.0.1:${FRONTEND_PORT:-8080}:8080"
     depends_on:
       - gateway
+
+  # One-shot presentation helper. Not started with the normal stack; use:
+  #   docker compose --profile demo run --rm --no-deps demo --scan
+  #   docker compose --profile demo run --rm --no-deps demo --tips
+  #   docker compose --profile demo run --rm demo --demo --explain
+  #   docker compose --profile demo run --rm demo --all --locations
+  demo:
+    image: python:3.12-alpine
+    profiles: [demo]
+    working_dir: /workspace
+    # entrypoint (not command) so `docker compose run demo --scan` passes flags to the script.
+    entrypoint: ["python3", "scripts/demo_vulnerabilities.py"]
+    volumes:
+      - .:/workspace:ro
+    networks: [frontend]
+    environment:
+      PYTHONUNBUFFERED: "1"
+      # Inside Docker, localhost is the helper container itself; use the service name.
+      TROLLNET_BASE_URL: http://frontend:8080
+    depends_on:
+      - frontend
 
 networks:
   frontend:

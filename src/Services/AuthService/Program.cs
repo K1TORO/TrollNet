@@ -19,7 +19,10 @@ builder.Services.AddHealthChecks();
 var app = builder.Build();
 
 app.UseTrollNetForwardedHeaders();
-app.UseExceptionHandler();
+// VULN-SPOT #18: Error Message Information Leak (CWE-209) — INTENTIONAL FOR TRAINING
+//   Detailed developer exception pages are returned to clients (stack traces, file paths, SQL errors).
+//   Fix: app.UseExceptionHandler() with a generic ProblemDetails response; log details only on the server.
+app.UseDeveloperExceptionPage();
 app.UseAuthentication();
 app.UseAuthorization();
 app.UseRateLimiter();

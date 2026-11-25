@@ -37,7 +37,7 @@ public static class DbSeeder
         {
             Username = username,
             NormalizedUsername = normalized,
-            PasswordHash = BCrypt.Net.BCrypt.HashPassword(password, PasswordRules.BcryptWorkFactor),
+            PasswordHash = PasswordRules.Hash(password),
             Role = role,
             CreatedAt = time.GetUtcNow().UtcDateTime,
         });

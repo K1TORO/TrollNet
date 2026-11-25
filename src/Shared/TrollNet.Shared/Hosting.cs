@@ -1,3 +1,4 @@
+using System.Net;
 using System.Security.Claims;
 using System.Threading.RateLimiting;
 using Microsoft.AspNetCore.Builder;
@@ -44,22 +45,26 @@ public static class HostingExtensions
         }
     }
 
-    // VULN-SPOT #17: Reliance on Reverse DNS / Spoofable Client IP (CWE-348)
-    //   Typical mistake: trusting any X-Forwarded-For value, so a client can fake its IP and bypass rate limits.
-    //   Here: nginx overwrites the header, and only the last two hops (nginx + gateway) are processed.
+    // VULN-SPOT #17: Reliance on Reverse DNS / Spoofable Client IP (CWE-348) — INTENTIONAL FOR TRAINING
+    //   Every proxy is trusted (0.0.0.0/0 and ::/0), and nginx appends to X-Forwarded-For instead of overwriting it.
+    //   The middleware therefore uses the client-supplied leftmost address as RemoteIpAddress.
+    //   Try: POST /api/auth/guest with header 'X-Forwarded-For: 1.2.3.4' repeatedly to get new rate-limit buckets.
+    //   Fix: overwrite X-Forwarded-For at the edge and only trust the known proxy addresses.
     /// <summary>
-    /// Restores the real client IP behind nginx -> gateway (two hops), so rate limits are per client.
-    /// Services are only reachable on the internal Docker network, so the proxies in front of them are trusted.
+    /// Restores the client IP from forwarded headers, trusting every proxy (intentionally insecure).
     /// </summary>
     public static WebApplication UseTrollNetForwardedHeaders(this WebApplication app)
     {
         var options = new ForwardedHeadersOptions
         {
             ForwardedHeaders = ForwardedHeaders.XForwardedFor | ForwardedHeaders.XForwardedProto,
-            ForwardLimit = 2,
+            ForwardLimit = 10,
+            RequireHeaderSymmetry = false,
         };
         options.KnownIPNetworks.Clear();
         options.KnownProxies.Clear();
+        options.KnownIPNetworks.Add(new System.Net.IPNetwork(IPAddress.Any, 0));
+        options.KnownIPNetworks.Add(new System.Net.IPNetwork(IPAddress.IPv6Any, 0));
         app.UseForwardedHeaders(options);
         return app;
     }
