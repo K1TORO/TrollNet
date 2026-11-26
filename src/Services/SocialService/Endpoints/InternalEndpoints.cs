@@ -23,7 +23,46 @@ public static class InternalEndpoints
         group.MapGet("/{id:int}", GetPost);
         group.MapDelete("/{id:int}", DeletePost);
         group.MapPost("/{id:int}/comments", CreateComment);
+
+        // Service-to-service only (NOT under /internal/posts, so the gateway does not expose these):
+        // the game engine defaces a captured post and checks whether a player stored an XSS payload.
+        app.MapPost("/internal/deface/{id:int}", DefacePost);
+        app.MapGet("/internal/xss-check", XssCheck);
         return app;
+    }
+
+    /// <summary>Replace a captured post's content with troll text and flag it as defaced.</summary>
+    private static async Task<IResult> DefacePost(int id, DefacePostRequest request, SocialDbContext db, CancellationToken ct)
+    {
+        var content = request.Content?.Trim();
+        if (string.IsNullOrEmpty(content) || content.Length > ContentRules.MaxPostLength)
+        {
+            return Results.BadRequest(new ErrorResponse("Invalid deface content."));
+        }
+
+        var post = await db.Posts.FirstOrDefaultAsync(p => p.Id == id, ct);
+        if (post is null)
+        {
+            return Results.NotFound();
+        }
+
+        post.Content = content;
+        post.IsDefaced = true;
+        await db.SaveChangesAsync(ct);
+        return Results.NoContent();
+    }
+
+    /// <summary>True when the given author has a post or comment whose content looks like a stored XSS payload.</summary>
+    private static async Task<IResult> XssCheck(int authorId, SocialDbContext db, CancellationToken ct)
+    {
+        var inPosts = await db.Posts.AsNoTracking()
+            .AnyAsync(p => p.AuthorId == authorId &&
+                (p.Content.Contains("__trollnetXss") || p.Content.Contains("onerror") || p.Content.Contains("onload") || p.Content.Contains("<script")), ct);
+        var inComments = inPosts || await db.Comments.AsNoTracking()
+            .AnyAsync(c => c.AuthorId == authorId &&
+                (c.Content.Contains("__trollnetXss") || c.Content.Contains("onerror") || c.Content.Contains("onload") || c.Content.Contains("<script")), ct);
+
+        return Results.Ok(new XssCheckResponse(inComments));
     }
 
     // VULN-SPOT #08 (continued): the unauthenticated internal read returns the post INCLUDING its private

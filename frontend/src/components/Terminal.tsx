@@ -1,5 +1,8 @@
 import { useEffect, useRef, useState, type ClipboardEvent, type KeyboardEvent } from 'react';
 import { tokenStore } from '../api';
+import { pick, useLang, type Lang } from '../i18n';
+import { terminalHint } from './hintEngine';
+import { TypingText } from './TypingText';
 
 export interface TerminalFlag {
   flag: string;
@@ -20,7 +23,7 @@ export function onTerminalLoad(handler: (command: string) => void): () => void {
   return () => window.removeEventListener(LOAD_EVENT, listener);
 }
 
-type LineKind = 'input' | 'output' | 'error' | 'info';
+type LineKind = 'input' | 'output' | 'error' | 'info' | 'bot';
 interface Line {
   id: number;
   kind: LineKind;
@@ -30,7 +33,29 @@ interface Line {
 const PROMPT = 'user@trollnet ~$';
 const MAX_OUTPUT_CHARS = 20_000;
 
-const HELP = `Available commands:
+function helpText(lang: Lang): string {
+  return pick(
+    lang,
+    `Dostępne komendy:
+  curl [opcje] <url>     wyślij żądanie HTTP do API TrollNet
+      -X, --request <M>      metoda HTTP (GET, POST, PUT, DELETE...)
+      -H, --header <H>       dodaj nagłówek, np. -H "Content-Type: application/json"
+      -d, --data <body>      treść żądania (domyślnie POST, gdy obecna)
+      --data-urlencode <d>   zakoduj wartość URL (name=value) i wyślij
+      -G, --get              włóż dane -d / --data-urlencode do query w URL
+      -i, --include          pokaż status i nagłówki odpowiedzi
+  jq [-r] <filtr>        wybierz pola z JSON: .  .name  .[0]  .[]  .[0].flag
+  base64 [-d] <tekst>    zakoduj tekst do base64url (-d dekoduje)
+  echo <tekst>           wypisz tekst
+  NAME=value             ustaw zmienną, użyj później jako $NAME
+  whoami                 pokaż info o Twoim tokenie gościa
+  history                lista poprzednich komend
+  clear                  wyczyść ekran
+  help                   pokaż tę pomoc
+
+Potoki działają: curl /api/objectives | jq '.[0].flag'
+$TOKEN to Twój token sesji. Strzałki góra/dół przeglądają historię.`,
+    `Available commands:
   curl [options] <url>   send an HTTP request to the TrollNet API
       -X, --request <M>      HTTP method (GET, POST, PUT, DELETE...)
       -H, --header <H>       add a header, e.g. -H "Content-Type: application/json"
@@ -48,7 +73,9 @@ const HELP = `Available commands:
   help                   show this help
 
 Pipes work: curl /api/objectives | jq '.[0].flag'
-$TOKEN is your own session token. Up/Down arrows browse history.`;
+$TOKEN is your own session token. Up/Down arrows browse history.`,
+  );
+}
 
 const PIPE = Symbol('pipe');
 type Word = string | typeof PIPE;
@@ -164,6 +191,7 @@ function urlEncodeData(d: string): string {
 interface CmdResult {
   text: string;
   failed?: boolean;
+  status?: number;
 }
 
 async function runCurl(args: string[]): Promise<CmdResult> {
@@ -250,7 +278,7 @@ async function runCurl(args: string[]): Promise<CmdResult> {
     out = `${head.join('\n')}\n\n`;
   }
   out += text || (include ? '' : `(empty body, HTTP ${res.status})`);
-  return { text: out, failed: !res.ok };
+  return { text: out, failed: !res.ok, status: res.status };
 }
 
 /** Tiny jq: supports ., .key, ."key", .[n], .[] and chains of them. */
@@ -308,6 +336,7 @@ interface TerminalProps {
 
 /** In-browser terminal: run curl requests against the API and see the responses. */
 export function Terminal({ title = 'user@trollnet — bash', onClose }: TerminalProps) {
+  const { lang } = useLang();
   const [lines, setLines] = useState<Line[]>([]);
   const [input, setInput] = useState('');
   const [busy, setBusy] = useState(false);
@@ -341,7 +370,7 @@ export function Terminal({ title = 'user@trollnet — bash', onClose }: Terminal
   async function runStage(cmd: string, args: string[], stdin: string): Promise<CmdResult> {
     switch (cmd) {
       case 'help':
-        return { text: HELP };
+        return { text: helpText(lang) };
       case 'echo':
         return { text: args.join(' ') };
       case 'history':
@@ -424,8 +453,13 @@ export function Terminal({ title = 'user@trollnet — bash', onClose }: Terminal
       if (text.length > MAX_OUTPUT_CHARS) text = `${text.slice(0, MAX_OUTPUT_CHARS)}\n… (truncated)`;
       const kind: LineKind = stages[0][0] === 'help' ? 'info' : result.failed ? 'error' : 'output';
       if (text) print(kind, text);
+      const hint = terminalHint(line, result.text, result.status ?? null, lang);
+      if (hint) print('bot', hint);
     } catch (err) {
-      print('error', `${current}: ${(err as Error).message}`);
+      const message = (err as Error).message;
+      print('error', `${current}: ${message}`);
+      const hint = terminalHint(line, message, null, lang);
+      if (hint) print('bot', hint);
     } finally {
       setBusy(false);
       window.setTimeout(() => inputRef.current?.focus(), 0);
@@ -493,17 +527,24 @@ export function Terminal({ title = 'user@trollnet — bash', onClose }: Terminal
         <span className="terminal-dot" aria-hidden />
         <span className="terminal-title">{title}</span>
         {onClose && (
-          <button className="link small terminal-close" onClick={onClose} aria-label="Hide terminal">
-            Hide
+          <button className="link small terminal-close" onClick={onClose} aria-label={pick(lang, 'Ukryj terminal', 'Hide terminal')}>
+            {pick(lang, 'Ukryj', 'Hide')}
           </button>
         )}
       </div>
       <div className="terminal-screen" ref={screenRef} onClick={focusInputUnlessSelecting}>
-        {lines.length === 0 && <div className="terminal-out info">Type "help" to see available commands.</div>}
+        {lines.length === 0 && (
+          <div className="terminal-out info">{pick(lang, 'Wpisz „help”, aby zobaczyć dostępne komendy.', 'Type "help" to see available commands.')}</div>
+        )}
         {lines.map((l) =>
           l.kind === 'input' ? (
             <div key={l.id} className="terminal-out">
               <span className="terminal-prompt">{PROMPT}</span> {l.text}
+            </div>
+          ) : l.kind === 'bot' ? (
+            <div key={l.id} className="terminal-out bot">
+              <span className="terminal-bot-tag" aria-hidden="true">🤖</span>{' '}
+              <TypingText text={l.text} />
             </div>
           ) : (
             <div key={l.id} className="terminal-out-row">
@@ -551,6 +592,7 @@ interface CommandTemplateProps {
 
 /** A curl template card for a tip; "Load into terminal" sends it to the side terminal. */
 export function CommandTemplate({ title, command, description, flags }: CommandTemplateProps) {
+  const { lang } = useLang();
   const [copied, setCopied] = useState(false);
 
   async function copy() {
@@ -587,10 +629,10 @@ export function CommandTemplate({ title, command, description, flags }: CommandT
         ) : null}
         <div className="terminal-actions">
           <button className="link small" onClick={() => loadIntoTerminal(command)}>
-            Load into terminal
+            {pick(lang, 'Załaduj do terminala', 'Load into terminal')}
           </button>
           <button className="link small" onClick={copy}>
-            {copied ? 'Copied!' : 'Copy command'}
+            {copied ? pick(lang, 'Skopiowano!', 'Copied!') : pick(lang, 'Kopiuj komendę', 'Copy command')}
           </button>
         </div>
       </div>

@@ -1,19 +1,25 @@
-import { API_CATALOG, API_TYPES, DATABASES } from '../apiCatalog';
+import { getApiCatalog, getDatabases, API_TYPES } from '../apiCatalog';
+import { pick, useLang } from '../i18n';
 
 /** "API & DB" page: a ready-made reconnaissance map of TrollNet. */
 export function DocsView() {
+  const { lang } = useLang();
+  const L = (pl: string, en: string) => pick(lang, pl, en);
+  const catalog = getApiCatalog(lang);
+  const databases = getDatabases(lang);
   return (
     <div className="stack">
       <div className="intro">
-        <h2>API &amp; database map</h2>
+        <h2>{L('Mapa API i bazy danych', 'API & database map')}</h2>
         <p className="muted small">
-          Mapping an application's endpoints and data model usually takes hours of exploring. In TrollNet you get it
-          for free. All requests go through <code>http://localhost:8080</code>. Authenticated endpoints expect{' '}
+          {L('Zmapowanie endpointów i modelu danych aplikacji zwykle zajmuje godziny eksploracji. W TrollNet dostajesz to za darmo. Wszystkie żądania idą przez ', "Mapping an application's endpoints and data model usually takes hours of exploring. In TrollNet you get it for free. All requests go through ")}
+          <code>http://localhost:8080</code>
+          {L('. Uwierzytelnione endpointy oczekują ', '. Authenticated endpoints expect ')}
           <code>Authorization: Bearer &lt;token&gt;</code>.
         </p>
       </div>
 
-      {API_CATALOG.map((svc) => (
+      {catalog.map((svc) => (
         <section key={svc.service} className="docs-panel">
           <header className="docs-title">
             <h3>{svc.service}</h3>
@@ -23,11 +29,11 @@ export function DocsView() {
             <table className="docs-table">
               <thead>
                 <tr>
-                  <th scope="col">Method</th>
-                  <th scope="col">Path</th>
-                  <th scope="col">Auth</th>
-                  <th scope="col">Body</th>
-                  <th scope="col">Returns</th>
+                  <th scope="col">{L('Metoda', 'Method')}</th>
+                  <th scope="col">{L('Ścieżka', 'Path')}</th>
+                  <th scope="col">{L('Uwierz.', 'Auth')}</th>
+                  <th scope="col">{L('Body', 'Body')}</th>
+                  <th scope="col">{L('Zwraca', 'Returns')}</th>
                 </tr>
               </thead>
               <tbody>
@@ -55,8 +61,8 @@ export function DocsView() {
 
       <section className="docs-panel">
         <header className="docs-title">
-          <h3>Response types</h3>
-          <span className="small">JSON uses camelCase; dates are ISO 8601 in UTC.</span>
+          <h3>{L('Typy odpowiedzi', 'Response types')}</h3>
+          <span className="small">{L('JSON używa camelCase; daty to ISO 8601 w UTC.', 'JSON uses camelCase; dates are ISO 8601 in UTC.')}</span>
         </header>
         <dl className="type-list">
           {API_TYPES.map((t) => (
@@ -72,7 +78,7 @@ export function DocsView() {
         </dl>
       </section>
 
-      {DATABASES.map((db) => (
+      {databases.map((db) => (
         <section key={db.name} className="docs-panel">
           <header className="docs-title">
             <h3>
@@ -81,7 +87,7 @@ export function DocsView() {
               </span>{' '}
               {db.name}
             </h3>
-            <span className="small">PostgreSQL · owned by {db.owner}</span>
+            <span className="small">{L('PostgreSQL · właściciel ', 'PostgreSQL · owned by ')}{db.owner}</span>
           </header>
 
           {db.tables.map((table) => (
@@ -93,10 +99,10 @@ export function DocsView() {
                 <table className="docs-table">
                   <thead>
                     <tr>
-                      <th scope="col">Column</th>
-                      <th scope="col">Type</th>
-                      <th scope="col">Key</th>
-                      <th scope="col">Notes</th>
+                      <th scope="col">{L('Kolumna', 'Column')}</th>
+                      <th scope="col">{L('Typ', 'Type')}</th>
+                      <th scope="col">{L('Klucz', 'Key')}</th>
+                      <th scope="col">{L('Uwagi', 'Notes')}</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -120,7 +126,7 @@ export function DocsView() {
               </div>
               {table.indexes && (
                 <p className="muted small">
-                  Indexes: <code>{table.indexes.join(', ')}</code>
+                  {L('Indeksy: ', 'Indexes: ')}<code>{table.indexes.join(', ')}</code>
                 </p>
               )}
             </div>
@@ -129,8 +135,11 @@ export function DocsView() {
       ))}
 
       <p className="muted small center">
-        Each service owns its own database, so there are no foreign keys between databases. Cross-service ids like{' '}
-        <code>AuthorId</code> are plain integers.
+        {L(
+          'Każda usługa ma własną bazę danych, więc między bazami nie ma kluczy obcych. Międzyusługowe id, takie jak ',
+          'Each service owns its own database, so there are no foreign keys between databases. Cross-service ids like ',
+        )}
+        <code>AuthorId</code>{L(', to zwykłe liczby całkowite.', ' are plain integers.')}
       </p>
     </div>
   );

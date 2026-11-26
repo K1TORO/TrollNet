@@ -117,6 +117,19 @@ public static class ContentLibrary
             "Internal push accepted. The package is attached where only internal callers can see it."),
     ];
 
+    /// <summary>Troll text a captured post is defaced with — the "you got pwned" flavour.</summary>
+    public static readonly string[] TrollDefacements =
+    [
+        "🔓 PWNED by a troll. This post now belongs to the bridge. Honk honk.",
+        "🔓 This meme has been liberated. All your flags are belong to us.",
+        "🔓 DEFACED: the moderator stepped away for 5 minutes. Big mistake.",
+        "🔓 Error 418: this post is now a teapot. Brew responsibly.",
+        "🔓 A wild troll appeared and replaced everything with interpretive dance. 💃",
+        "🔓 Breaking: local post discovers it was never safe. More at 11.",
+        "🔓 This content was sponsored by the letter XSS and the number 1=1.",
+        "🔓 Congratulations, you played yourself. — the post, probably.",
+    ];
+
     public static int PointsFor(int difficulty) => difficulty switch
     {
         <= 1 => 100,

@@ -16,6 +16,8 @@ export interface Post {
   authorName: string;
   content: string;
   isTrending: boolean;
+  /** Set once a player captures this post's objective: content is replaced with troll text, UI marks it "pwned". */
+  isDefaced?: boolean;
   createdAt: string;
   commentCount: number;
 }
@@ -50,12 +52,25 @@ export interface Objective {
   vector: 'AdminEndpoint' | 'DataLeak' | 'Ssrf' | 'Sqli' | 'MissingAuth' | 'Idor' | 'Xss' | 'MassAssign';
   // VULN-SPOT #15: only the DataLeak objective still returns its flag here; null for every other objective.
   flag: string | null;
+  /** True when the current player skipped or let this objective fail (per-player; survives tab switches/reloads). */
+  attemptFailed?: boolean;
 }
 
 export interface SubmitResult {
   correct: boolean;
   pointsAwarded: number;
   message: string;
+}
+
+export type GameMode = 'Educational' | 'Challenge';
+export type ChallengeStatus = 'None' | 'Active' | 'Ended';
+
+export interface ModeState {
+  mode: GameMode;
+  fails: number;
+  maxFails: number;
+  challengeStatus: ChallengeStatus;
+  challengeScore: number;
 }
 
 export interface ScoreEntry {
@@ -193,9 +208,18 @@ export const api = {
   objectives: () => request<Objective[]>('/objectives'),
   submitFlag: (objectiveId: number, flag: string) =>
     request<SubmitResult>(`/objectives/${objectiveId}/submit`, { method: 'POST', body: json({ flag }) }),
+  // VULN-SPOT #02: the beacon a stored XSS payload hits to capture an XSS objective.
+  xssProof: (objectiveId: number, flag: string) =>
+    request<SubmitResult>(`/objectives/${objectiveId}/xss-proof`, { method: 'POST', body: json({ flag }) }),
   // VULN-SPOT #02: the XSS objective's flag, loaded into a JS-only variable (never shown on screen).
   objectiveNotice: (objectiveId: number) =>
     request<{ objectiveId: number; flag: string }>(`/objectives/${objectiveId}/notice`),
+
+  // Educational vs Challenge mode + the current challenge run state.
+  getMode: () => request<ModeState>('/mode'),
+  setMode: (mode: GameMode) => request<ModeState>('/mode', { method: 'POST', body: json({ mode }) }),
+  skipObjective: (objectiveId: number) =>
+    request<ModeState>(`/objectives/${objectiveId}/skip`, { method: 'POST' }),
 
   leaderboard: () => request<ScoreEntry[]>('/scores/leaderboard'),
   myScore: () => request<ScoreEntry>('/scores/me'),

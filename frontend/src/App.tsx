@@ -9,20 +9,38 @@ import { TipsView } from './components/TipsView';
 import { DocsView } from './components/DocsView';
 import { DevView } from './components/DevView';
 import { onTerminalLoad, Terminal } from './components/Terminal';
+import { pick, useLang, type Lang } from './i18n';
+import { useMode } from './mode';
+import { useConfirm } from './components/Confirm';
+import type { GameMode } from './api';
 
 type Tab = 'feed' | 'search' | 'objectives' | 'tips' | 'docs' | 'leaderboard' | 'dev';
 
-const TABS: { id: Tab; label: string }[] = [
-  { id: 'feed', label: 'Feed' },
-  { id: 'search', label: 'Search' },
-  { id: 'objectives', label: 'Objectives' },
-  { id: 'tips', label: 'Tips' },
-  { id: 'docs', label: 'API & DB' },
-  { id: 'leaderboard', label: 'Leaderboard' },
-];
+const TAB_IDS: Tab[] = ['feed', 'search', 'objectives', 'tips', 'docs', 'leaderboard'];
+
+function tabLabel(id: Tab, lang: Lang): string {
+  switch (id) {
+    case 'feed':
+      return pick(lang, 'Feed', 'Feed');
+    case 'search':
+      return pick(lang, 'Szukaj', 'Search');
+    case 'objectives':
+      return pick(lang, 'Zadania', 'Objectives');
+    case 'tips':
+      return pick(lang, 'Wskazówki', 'Tips');
+    case 'docs':
+      return pick(lang, 'API i DB', 'API & DB');
+    case 'leaderboard':
+      return pick(lang, 'Ranking', 'Leaderboard');
+    case 'dev':
+      return pick(lang, 'Dev', 'Dev');
+  }
+}
 
 export default function App() {
   const { user, error, retry } = useAuth();
+  const { lang } = useLang();
+  const L = (pl: string, en: string) => pick(lang, pl, en);
   const [tab, setTab] = useState<Tab>('feed');
   const [focusedTipId, setFocusedTipId] = useState<string | null>(null);
   const [terminalOpen, setTerminalOpen] = useState(readTerminalOpen);
@@ -36,7 +54,7 @@ export default function App() {
       .catch(() => setDevEnabled(false));
   }, []);
 
-  const tabs = devEnabled ? [...TABS, { id: 'dev' as Tab, label: 'Dev' }] : TABS;
+  const tabs: Tab[] = devEnabled ? [...TAB_IDS, 'dev'] : TAB_IDS;
 
   useEffect(() => {
     try {
@@ -49,6 +67,31 @@ export default function App() {
   // Loading a tip's command into the terminal also opens the panel.
   useEffect(() => onTerminalLoad(() => setTerminalOpen(true)), []);
 
+  // VULN-SPOT #02: the beacon a stored XSS payload calls. Registered app-wide (not per objective card) so it
+  // works when the payload actually executes — in the rendered feed, on whatever tab the player is viewing.
+  // It self-fetches the hidden notice and beacons the flag; the server still requires a stored payload to
+  // exist, so the capture only works for the player who planted it.
+  useEffect(() => {
+    const w = window as unknown as { __trollnetXss?: (objectiveId: number) => Promise<boolean> };
+    w.__trollnetXss = async (objectiveId: number) => {
+      try {
+        const notice = await api.objectiveNotice(objectiveId);
+        const res = await api.xssProof(objectiveId, notice.flag);
+        if (res.correct) window.dispatchEvent(new Event(SCORE_CHANGED_EVENT));
+        return res.correct;
+      } catch {
+        return false;
+      }
+    };
+    return () => {
+      try {
+        delete (window as unknown as { __trollnetXss?: unknown }).__trollnetXss;
+      } catch {
+        /* ignore */
+      }
+    };
+  }, []);
+
   return (
     <div className={terminalOpen ? 'shell with-terminal' : 'shell'}>
     <div className="app">
@@ -60,40 +103,44 @@ export default function App() {
 
         <div className="navbar">
         <nav className="tabs" aria-label="Main">
-          {tabs.map((t) => (
+          {tabs.map((id) => (
             <button
-              key={t.id}
-              className={t.id === tab ? 'tab active' : 'tab'}
-              aria-current={t.id === tab ? 'page' : undefined}
+              key={id}
+              className={id === tab ? 'tab active' : 'tab'}
+              aria-current={id === tab ? 'page' : undefined}
               onClick={() => {
-                if (t.id === 'tips') setFocusedTipId(null);
-                setTab(t.id);
+                if (id === 'tips') setFocusedTipId(null);
+                setTab(id);
               }}
             >
-              {t.label}
+              {tabLabel(id, lang)}
             </button>
           ))}
         </nav>
 
-        {user && (
-          <div className="account">
-            <span>
-              Logged in as <strong>{user.username}</strong>
-              {user.role !== 'User' && <span className="role-badge">{user.role}</span>}
-            </span>
-            <ScoreBadge key={user.id} />
-            <SignIn />
-          </div>
-        )}
+        <div className="account">
+          <ModeToggle />
+          <LangToggle />
+          {user && (
+            <>
+              <span>
+                {L('Zalogowany jako', 'Logged in as')} <strong>{user.username}</strong>
+                {user.role !== 'User' && <span className="role-badge">{user.role}</span>}
+              </span>
+              <ScoreBadge key={user.id} />
+              <SignIn />
+            </>
+          )}
+        </div>
         </div>
       </header>
 
       <main className="content">
         {error && (
           <p className="error notice">
-            Could not connect: {error}{' '}
+            {L('Nie udało się połączyć:', 'Could not connect:')} {error}{' '}
             <button className="link" onClick={retry}>
-              Retry
+              {L('Ponów', 'Retry')}
             </button>
           </p>
         )}
@@ -139,6 +186,91 @@ export default function App() {
   );
 }
 
+/** Educational / Challenge switch + the fail counter, in the top bar. */
+function ModeToggle() {
+  const { lang } = useLang();
+  const L = (pl: string, en: string) => pick(lang, pl, en);
+  const { state, mode, setMode } = useMode();
+  const confirm = useConfirm();
+  const [busy, setBusy] = useState(false);
+
+  async function choose(next: GameMode) {
+    if (next === mode || busy) return;
+    const message =
+      next === 'Challenge'
+        ? L('Znikają szablony i wyjaśnienia, punkty są pełne, a 4 oblane zadania kończą wyzwanie. Licznik startuje od zera.', 'Templates and explanations disappear, points are full, and 4 failed objectives end the challenge. The counter resets.')
+        : L('Wracają szablony i wyjaśnienia, punkty są o połowę mniejsze. Licznik oblań startuje od zera.', 'Templates and explanations return, points are halved. The fail counter resets.');
+    const ok = await confirm({
+      title: next === 'Challenge' ? L('Przejść w tryb Wyzwanie?', 'Switch to Challenge mode?') : L('Przejść w tryb Edukacja?', 'Switch to Educational mode?'),
+      message,
+      confirmLabel: L('Przełącz', 'Switch'),
+      cancelLabel: L('Anuluj', 'Cancel'),
+    });
+    if (!ok) return;
+    setBusy(true);
+    try {
+      await setMode(next);
+    } catch {
+      /* ignore; next poll will reconcile */
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  const fails = state?.fails ?? 0;
+  const maxFails = state?.maxFails ?? 4;
+  const ended = state?.challengeStatus === 'Ended';
+
+  return (
+    <div className="mode-toggle" role="group" aria-label={L('Tryb gry', 'Game mode')}>
+      <button
+        className={mode === 'Educational' ? 'mode-option active' : 'mode-option'}
+        aria-pressed={mode === 'Educational'}
+        disabled={busy}
+        onClick={() => choose('Educational')}
+        title={L('Szablony i wyjaśnienia; punkty ÷2', 'Templates & explanations; points ÷2')}
+      >
+        {L('Edukacja', 'Educational')}
+      </button>
+      <button
+        className={mode === 'Challenge' ? 'mode-option active' : 'mode-option'}
+        aria-pressed={mode === 'Challenge'}
+        disabled={busy}
+        onClick={() => choose('Challenge')}
+        title={L('Bez podpowiedzi; pełne punkty; 4 oblane = koniec', 'No hints; full points; 4 fails = over')}
+      >
+        {L('Wyzwanie', 'Challenge')}
+      </button>
+      <span className={ended ? 'mode-fails ended' : 'mode-fails'} title={L('Oblane zadania', 'Failed objectives')}>
+        {mode === 'Challenge' ? `✗ ${fails}/${maxFails}` : `✗ ${fails}`}
+      </span>
+    </div>
+  );
+}
+
+/** PL/EN switch in the top bar. */
+function LangToggle() {
+  const { lang, setLang } = useLang();
+  return (
+    <div className="lang-toggle" role="group" aria-label="Language">
+      <button
+        className={lang === 'pl' ? 'lang-option active' : 'lang-option'}
+        aria-pressed={lang === 'pl'}
+        onClick={() => setLang('pl')}
+      >
+        PL
+      </button>
+      <button
+        className={lang === 'en' ? 'lang-option active' : 'lang-option'}
+        aria-pressed={lang === 'en'}
+        onClick={() => setLang('en')}
+      >
+        EN
+      </button>
+    </div>
+  );
+}
+
 const TERMINAL_OPEN_KEY = 'trollnet.terminalOpen';
 
 function readTerminalOpen(): boolean {
@@ -155,6 +287,8 @@ function readTerminalOpen(): boolean {
  */
 function SignIn() {
   const { user, signIn, signOut } = useAuth();
+  const { lang } = useLang();
+  const L = (pl: string, en: string) => pick(lang, pl, en);
   const [open, setOpen] = useState(false);
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
@@ -174,7 +308,7 @@ function SignIn() {
       setUsername('');
       setPassword('');
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Sign in failed.');
+      setError(err instanceof Error ? err.message : L('Logowanie nie powiodło się.', 'Sign in failed.'));
     } finally {
       setBusy(false);
     }
@@ -183,7 +317,7 @@ function SignIn() {
   if (!isGuest) {
     return (
       <button className="link small" onClick={signOut}>
-        Sign out
+        {L('Wyloguj', 'Sign out')}
       </button>
     );
   }
@@ -191,7 +325,7 @@ function SignIn() {
   if (!open) {
     return (
       <button className="link small" onClick={() => setOpen(true)}>
-        Sign in
+        {L('Zaloguj', 'Sign in')}
       </button>
     );
   }
@@ -199,26 +333,26 @@ function SignIn() {
   return (
     <form className="signin-form" onSubmit={submit}>
       <input
-        aria-label="Username"
-        placeholder="username"
+        aria-label={L('Nazwa użytkownika', 'Username')}
+        placeholder={L('nazwa użytkownika', 'username')}
         value={username}
         onChange={(e) => setUsername(e.target.value)}
         autoComplete="username"
         autoFocus
       />
       <input
-        aria-label="Password"
+        aria-label={L('Hasło', 'Password')}
         type="password"
-        placeholder="password"
+        placeholder={L('hasło', 'password')}
         value={password}
         onChange={(e) => setPassword(e.target.value)}
         autoComplete="current-password"
       />
       <button type="submit" className="link small" disabled={busy}>
-        {busy ? '...' : 'Go'}
+        {busy ? '...' : L('Dalej', 'Go')}
       </button>
       <button type="button" className="link small" onClick={() => setOpen(false)}>
-        Cancel
+        {L('Anuluj', 'Cancel')}
       </button>
       {error && <span className="error small signin-error">{error}</span>}
     </form>

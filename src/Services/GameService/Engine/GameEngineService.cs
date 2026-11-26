@@ -1,4 +1,5 @@
 using GameService.Data;
+using GameService.Endpoints;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
 
@@ -88,6 +89,20 @@ public sealed class GameEngineService(
                 await social.DeletePostAsync(postId, ct);
             }
 
+            // Letting an objective you engaged with (attempted or skipped) expire uncaptured counts as a fail.
+            var attempts = await db.ObjectiveAttempts
+                .Where(a => a.ObjectiveId == objective.Id && !a.Completed && !a.Failed)
+                .ToListAsync(ct);
+            foreach (var attempt in attempts)
+            {
+                attempt.Failed = true;
+                var player = await db.PlayerStates.FirstOrDefaultAsync(p => p.UserId == attempt.UserId, ct);
+                if (player is not null)
+                {
+                    await GameEndpoints.RegisterFailAsync(db, player, now, ct);
+                }
+            }
+
             db.Objectives.Remove(objective);
             await db.SaveChangesAsync(ct);
             logger.LogInformation("Moderator reviewed post {PostId}; objective {ObjectiveId} expired uncaptured.",
@@ -97,13 +112,28 @@ public sealed class GameEngineService(
 
     private async Task SpawnObjectiveAsync(GameDbContext db, SocialClient social, GameEngineOptions settings, DateTime now, CancellationToken ct)
     {
-        var active = await db.Objectives.CountAsync(o => !o.IsCompleted && o.ExpiresAt > now, ct);
-        if (active >= settings.MaxActiveObjectives)
+        var activeObjectives = await db.Objectives
+            .Where(o => !o.IsCompleted && o.ExpiresAt > now)
+            .Select(o => o.Vector)
+            .ToListAsync(ct);
+        if (activeObjectives.Count >= settings.MaxActiveObjectives)
         {
             return;
         }
 
-        var template = ContentLibrary.Pick(ContentLibrary.Objectives);
+        // MassAssign is the one vector whose capture is NOT objective-specific: the create-post endpoint
+        // echoes the newest decree's SystemNote (see PostEndpoints VULN-SPOT #04), so two live MassAssign
+        // decrees would hand players the wrong objective's flag. Never run two at once. Every other vector
+        // is keyed by objective id or target post, so concurrent duplicates are harmless.
+        var candidates = ContentLibrary.Objectives
+            .Where(t => t.Vector != FlagVector.MassAssign || !activeObjectives.Contains(FlagVector.MassAssign))
+            .ToArray();
+        if (candidates.Length == 0)
+        {
+            return;
+        }
+
+        var template = ContentLibrary.Pick(candidates);
         var objective = await ObjectiveSpawner.SpawnAsync(db, social, template, settings.ObjectiveLifetimeMinutes, now, ct);
 
         logger.LogInformation("Spawned objective {ObjectiveId} '{Title}' targeting post {PostId}.", objective.Id, objective.Title, objective.TargetPostId);

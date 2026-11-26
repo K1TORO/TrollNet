@@ -4,6 +4,8 @@
  * Keep in sync with src/Services/* (endpoints) and src/Services/* /Data (EF Core models).
  */
 
+import { type Lang } from './i18n';
+
 export type HttpMethod = 'GET' | 'POST' | 'DELETE';
 
 export interface Endpoint {
@@ -53,6 +55,7 @@ export const API_CATALOG: ServiceApi[] = [
       { method: 'POST', path: '/api/auth/register', auth: NONE, request: '{ username, password }', response: 'AuthResponse' },
       { method: 'POST', path: '/api/auth/login', auth: NONE, request: '{ username, password }', response: 'AuthResponse' },
       { method: 'GET', path: '/api/auth/me', auth: BEARER, response: 'UserDto' },
+      { method: 'GET', path: '/api/auth/config', auth: NONE, response: '{ environment, adminUsername, adminPassword, warning }', note: 'VULN #16: debug endpoint leaks the admin credentials to anyone.' },
     ],
   },
   {
@@ -80,13 +83,17 @@ export const API_CATALOG: ServiceApi[] = [
     description: 'Game engine, objectives, flags and scores.',
     endpoints: [
       { method: 'GET', path: '/api/objectives', auth: NONE, response: 'ObjectiveDto[]', note: 'flag is null except for the DataLeak objective (#15).' },
-      { method: 'POST', path: '/api/objectives/{id}/submit', auth: BEARER, request: '{ flag }', response: '{ correct, pointsAwarded, message }' },
+      { method: 'POST', path: '/api/objectives/{id}/submit', auth: BEARER, request: '{ flag }', response: '{ correct, pointsAwarded, message }', note: 'XSS objectives reject a pasted flag — capture them via xss-proof.' },
+      { method: 'POST', path: '/api/objectives/{id}/xss-proof', auth: BEARER, request: '{ flag }', response: '{ correct, pointsAwarded, message }', note: 'VULN #02: beacon a stored XSS payload hits; also checks a payload was stored.' },
+      { method: 'POST', path: '/api/objectives/{id}/skip', auth: BEARER, response: 'ModeState', note: 'Give up on an objective (counts as a fail).' },
       { method: 'GET', path: '/api/objectives/{id}/flag', auth: `${BEARER} (Admin)`, response: '{ objectiveId, flag }', note: 'The vault (#13/#16): JWT signature is never checked.' },
       { method: 'GET', path: '/api/objectives/{id}/notice', auth: BEARER, response: '{ objectiveId, flag }', note: 'VULN #02 (XSS): the flag the page keeps in a JS-only variable.' },
       { method: 'GET', path: '/internal/vault/{id}', auth: NONE, response: '{ objectiveId, flag }', note: 'VULN #06 (SSRF): NOT routed by the gateway — reachable only from inside the network.' },
       { method: 'GET', path: '/api/scores/leaderboard', auth: NONE, response: 'ScoreDto[] (top 20)' },
       { method: 'GET', path: '/api/scores/me', auth: BEARER, response: 'ScoreDto' },
       { method: 'POST', path: '/api/link-preview', auth: NONE, request: '{ url }', response: '{ url, statusCode, bodyPreview }' },
+      { method: 'GET', path: '/api/mode', auth: BEARER, response: 'ModeState', note: 'Educational vs Challenge mode + the current run state.' },
+      { method: 'POST', path: '/api/mode', auth: BEARER, request: '{ mode }', response: 'ModeState', note: 'Switch mode; resets the fail counter.' },
     ],
   },
 ];
@@ -197,3 +204,75 @@ export const DATABASES: Database[] = [
     ],
   },
 ];
+
+/**
+ * Polish for the prose strings (service descriptions, endpoint notes, a few column notes).
+ * Technical strings (type shapes, paths, auth, schema shorthand) are intentionally left out and
+ * stay as-is in both languages.
+ */
+const PROSE_PL: Record<string, string> = {
+  // service descriptions
+  'Players, sign-in tokens (JWT, HS256).': 'Gracze, tokeny logowania (JWT, HS256).',
+  'Posts, comments, search and attachments.': 'Posty, komentarze, wyszukiwanie i załączniki.',
+  'Game engine, objectives, flags and scores.': 'Silnik gry, zadania, flagi i wyniki.',
+  // endpoint notes
+  'Used by the web app on first visit.': 'Używane przez aplikację webową przy pierwszej wizycie.',
+  'Newest first, pageSize max 50.': 'Najnowsze pierwsze, pageSize maks. 50.',
+  'VULN #03 (IDOR): no ownership check — returns the private systemNote.':
+    'VULN #03 (IDOR): brak sprawdzenia własności — zwraca prywatny systemNote.',
+  'VULN #04 (mass assignment): forging privileged fields echoes the decree systemNote.':
+    'VULN #04 (mass assignment): podrobienie uprzywilejowanych pól odbija systemNote dekretu.',
+  'Service-to-service: used by the game engine.': 'Usługa-do-usługi: używane przez silnik gry.',
+  'VULN #08: unauthenticated — exposes the hidden systemNote.':
+    'VULN #08: bez uwierzytelnienia — ujawnia ukryty systemNote.',
+  'Service-to-service.': 'Usługa-do-usługi.',
+  'flag is null except for the DataLeak objective (#15).': 'flag jest null poza zadaniem DataLeak (#15).',
+  'The vault (#13/#16): JWT signature is never checked.': 'Skarbiec (#13/#16): podpis JWT nigdy nie jest sprawdzany.',
+  'VULN #02 (XSS): the flag the page keeps in a JS-only variable.':
+    'VULN #02 (XSS): flaga trzymana przez stronę w zmiennej tylko-JS.',
+  'VULN #06 (SSRF): NOT routed by the gateway — reachable only from inside the network.':
+    'VULN #06 (SSRF): NIE trasowane przez gateway — osiągalne tylko z wnętrza sieci.',
+  'VULN #16: debug endpoint leaks the admin credentials to anyone.':
+    'VULN #16: debugowy endpoint wycieka dane admina każdemu.',
+  'XSS objectives reject a pasted flag — capture them via xss-proof.':
+    'Zadania XSS odrzucają wklejoną flagę — zdobywa się je przez xss-proof.',
+  'VULN #02: beacon a stored XSS payload hits; also checks a payload was stored.':
+    'VULN #02: beacon, który trafia zapisany ładunek XSS; sprawdza też, że ładunek zapisano.',
+  'Give up on an objective (counts as a fail).': 'Poddanie zadania (liczy się jako oblane).',
+  'Educational vs Challenge mode + the current run state.': 'Tryb Edukacja vs Wyzwanie + stan bieżącego przebiegu.',
+  'Switch mode; resets the fail counter.': 'Zmiana trybu; resetuje licznik oblań.',
+  // db column notes (prose only)
+  'lower-case': 'małe litery',
+  'Users.Id (other DB); 0 = system': 'Users.Id (inna DB); 0 = system',
+  'Users.Id (other DB)': 'Users.Id (inna DB)',
+  'Posts.Id (other DB)': 'Posts.Id (inna DB)',
+  'Posts.Id, ON DELETE CASCADE': 'Posts.Id, ON DELETE CASCADE',
+  'links to the Tips page': 'łączy ze stroną Wskazówek',
+  'moderator review time': 'czas przeglądu przez moderatora',
+};
+
+/** Translate one prose string if a Polish version exists; otherwise return it unchanged. */
+function tr(lang: Lang, s: string | undefined): string | undefined {
+  if (s === undefined) return undefined;
+  return lang === 'pl' ? PROSE_PL[s] ?? s : s;
+}
+
+/** API catalog with prose (description, note) resolved for the given language. */
+export function getApiCatalog(lang: Lang): ServiceApi[] {
+  return API_CATALOG.map((svc) => ({
+    ...svc,
+    description: tr(lang, svc.description) ?? svc.description,
+    endpoints: svc.endpoints.map((e) => ({ ...e, note: tr(lang, e.note) })),
+  }));
+}
+
+/** Database schema with column notes resolved for the given language. */
+export function getDatabases(lang: Lang): Database[] {
+  return DATABASES.map((db) => ({
+    ...db,
+    tables: db.tables.map((t) => ({
+      ...t,
+      columns: t.columns.map((c) => ({ ...c, note: tr(lang, c.note) })),
+    })),
+  }));
+}

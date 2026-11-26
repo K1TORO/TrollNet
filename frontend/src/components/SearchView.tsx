@@ -1,8 +1,11 @@
 import { useState, type FormEvent } from 'react';
 import { api, errorMessage, type Post } from '../api';
+import { pick, useLang } from '../i18n';
 import { PostCard } from './PostCard';
 
 export function SearchView() {
+  const { lang } = useLang();
+  const L = (pl: string, en: string) => pick(lang, pl, en);
   const [query, setQuery] = useState('');
   const [results, setResults] = useState<Post[] | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -28,19 +31,19 @@ export function SearchView() {
       <form className="search-form" onSubmit={submit} role="search">
         <input
           type="search"
-          placeholder="Search posts..."
+          placeholder={L('Szukaj postów...', 'Search posts...')}
           value={query}
           maxLength={100}
           onChange={(e) => setQuery(e.target.value)}
-          aria-label="Search posts"
+          aria-label={L('Szukaj postów', 'Search posts')}
         />
         <button className="primary" type="submit" disabled={busy || !query.trim()}>
-          Search
+          {L('Szukaj', 'Search')}
         </button>
       </form>
 
       {error && <p className="error">{error}</p>}
-      {results !== null && results.length === 0 && <p className="muted center">No posts match your search.</p>}
+      {results !== null && results.length === 0 && <p className="muted center">{L('Brak postów pasujących do wyszukiwania.', 'No posts match your search.')}</p>}
       <div className="list">
         {results?.map((post) => (
           <PostCard

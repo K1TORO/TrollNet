@@ -22,6 +22,10 @@ public sealed class Post
     public required string AuthorName { get; set; }
     public required string Content { get; set; }
     public bool IsTrending { get; set; }
+
+    /// <summary>Set when a player captures this post's objective: the content is replaced with troll text and the UI marks it as "pwned".</summary>
+    public bool IsDefaced { get; set; }
+
     public DateTime CreatedAt { get; set; }
 
     /// <summary>

@@ -26,7 +26,9 @@ public sealed record ObjectiveDto(
     DateTime ExpiresAt,
     bool IsCompleted,
     string? CompletedByUsername,
-    string? Flag);
+    string? Flag,
+    /// <summary>True when the CURRENT player skipped or let this objective fail (per-player, from ObjectiveAttempt).</summary>
+    bool AttemptFailed);
 
 public sealed record SubmitFlagRequest(string? Flag);
 
@@ -40,11 +42,18 @@ public sealed record LinkPreviewRequest(string? Url);
 
 public sealed record LinkPreviewDto(string Url, int StatusCode, string BodyPreview);
 
+public sealed record ModeDto(string Mode, int Fails, int MaxFails, string ChallengeStatus, int ChallengeScore);
+
+public sealed record SetModeRequest(string? Mode);
+
 public static class GameEndpoints
 {
     public const string SubmitRateLimitPolicy = "flag-submit";
     private const int MaxFlagLength = 100;
     private const int LeaderboardSize = 20;
+
+    /// <summary>Failed objectives (expired or skipped) that end a Challenge run.</summary>
+    public const int ChallengeMaxFails = 4;
 
     public static IEndpointRouteBuilder MapGameEndpoints(this IEndpointRouteBuilder app)
     {
@@ -54,6 +63,10 @@ public static class GameEndpoints
         //   No rate limiter on flag submission, so guesses can be sent as fast as the network allows.
         //   Fix: re-apply SubmitRateLimitPolicy (10 guesses/minute per user) or use exponential backoff.
         objectives.MapPost("/{id:int}/submit", SubmitFlag).RequireAuthorization();
+        // VULN-SPOT #02: the beacon a stored XSS payload hits to capture an XSS objective.
+        objectives.MapPost("/{id:int}/xss-proof", XssProof).RequireAuthorization();
+        // Give up on an objective in the current run: counts as a fail (Challenge ends after ChallengeMaxFails).
+        objectives.MapPost("/{id:int}/skip", SkipObjective).RequireAuthorization();
         // The flag vault (VULN-SPOT #16 / #13): admin-only, but the JWT signature is never validated,
         // so a forged alg:none Admin token opens it just like the real seeded admin account does.
         objectives.MapGet("/{id:int}/flag", RevealFlag).RequireAuthorization(Policies.Admin);
@@ -65,6 +78,10 @@ public static class GameEndpoints
         var scores = app.MapGroup("/api/scores");
         scores.MapGet("/leaderboard", GetLeaderboard);
         scores.MapGet("/me", GetMyScore).RequireAuthorization();
+
+        // Educational / Challenge mode state for the current player.
+        app.MapGet("/api/mode", GetMode).RequireAuthorization();
+        app.MapPost("/api/mode", SetMode).RequireAuthorization();
 
         // VULN-SPOT #06: Server-Side Request Forgery (CWE-918) — INTENTIONAL FOR TRAINING
         app.MapPost("/api/link-preview", PreviewLink);
@@ -97,24 +114,39 @@ public static class GameEndpoints
         return Results.Ok(new LinkPreviewDto(url, (int)response.StatusCode, preview));
     }
 
-    private static async Task<IResult> GetObjectives(GameDbContext db, TimeProvider time, CancellationToken ct)
+    private static async Task<IResult> GetObjectives(ClaimsPrincipal user, GameDbContext db, TimeProvider time, CancellationToken ct)
     {
         var now = time.GetUtcNow().UtcDateTime;
-        var items = await db.Objectives.AsNoTracking()
+        var objectives = await db.Objectives.AsNoTracking()
             .Where(o => o.IsCompleted || o.ExpiresAt > now)
             .OrderBy(o => o.IsCompleted).ThenBy(o => o.ExpiresAt).ThenByDescending(o => o.CompletedAt)
             .Take(50)
-            .Select(o => new ObjectiveDto(
-                o.Id, o.Title, o.Description, o.Category, o.TipId, o.Vector.ToString(), o.Difficulty, o.Points, o.TargetPostId,
-                o.CreatedAt, o.ExpiresAt, o.IsCompleted, o.CompletedByUsername,
-                // VULN-SPOT #15: only the DataLeak objective still exposes its flag here.
-                o.Vector == FlagVector.DataLeak ? o.Flag : null))
             .ToListAsync(ct);
+
+        // Per-player skip/fail state (so a skipped objective stays skipped across tab switches and reloads).
+        // GetObjectives stays anonymous (VULN #15); when a token is present we also attach the caller's attempts.
+        var failed = new HashSet<int>();
+        if (int.TryParse(user.FindFirstValue(TrollNetClaims.Subject), out var userId))
+        {
+            var ids = objectives.Select(o => o.Id).ToList();
+            var failedIds = await db.ObjectiveAttempts.AsNoTracking()
+                .Where(a => a.UserId == userId && a.Failed && ids.Contains(a.ObjectiveId))
+                .Select(a => a.ObjectiveId)
+                .ToListAsync(ct);
+            failed = failedIds.ToHashSet();
+        }
+
+        var items = objectives.Select(o => new ObjectiveDto(
+            o.Id, o.Title, o.Description, o.Category, o.TipId, o.Vector.ToString(), o.Difficulty, o.Points, o.TargetPostId,
+            o.CreatedAt, o.ExpiresAt, o.IsCompleted, o.CompletedByUsername,
+            // VULN-SPOT #15: only the DataLeak objective still exposes its flag here.
+            o.Vector == FlagVector.DataLeak ? o.Flag : null,
+            failed.Contains(o.Id))).ToList();
 
         return Results.Ok(items);
     }
 
-    private static async Task<IResult> SubmitFlag(int id, SubmitFlagRequest request, ClaimsPrincipal user, GameDbContext db, TimeProvider time, CancellationToken ct)
+    private static async Task<IResult> SubmitFlag(int id, SubmitFlagRequest request, ClaimsPrincipal user, GameDbContext db, SocialClient social, TimeProvider time, CancellationToken ct)
     {
         var flag = request.Flag?.Trim();
         if (string.IsNullOrEmpty(flag) || flag.Length > MaxFlagLength)
@@ -139,24 +171,112 @@ public static class GameEndpoints
             return Results.Json(new ErrorResponse("Too late: the moderator already reviewed this post."), statusCode: StatusCodes.Status410Gone);
         }
 
-        if (!FlagsMatch(objective.Flag, flag))
+        // VULN-SPOT #02 (XSS): this objective cannot be captured by pasting the flag here — you must land a
+        // stored XSS payload that runs in the feed and beacons it (POST .../xss-proof). Reading the flag in
+        // the console is not enough.
+        if (objective.Vector == FlagVector.Xss)
         {
-            return Results.Ok(new SubmitFlagResponse(false, 0, "Incorrect flag. Keep digging."));
+            return Results.Json(new ErrorResponse("This flag must be captured with a stored XSS payload (it beacons itself), not pasted here."),
+                statusCode: StatusCodes.Status400BadRequest);
         }
 
         var userId = user.GetUserId();
         var username = user.GetUserName();
-        var points = objective.Points;
+        var player = await GetOrCreatePlayerAsync(db, userId, username, now, ct);
+
+        // A finished Challenge run is locked: no more submissions until the player restarts or switches mode.
+        if (player.Mode == GameMode.Challenge && player.ChallengeStatus == ChallengeStatus.Ended)
+        {
+            await db.SaveChangesAsync(ct);
+            return Results.Json(new ErrorResponse("Challenge over. Restart the challenge (or switch to Educational) to play again."),
+                statusCode: StatusCodes.Status403Forbidden);
+        }
+
+        // Record engagement so that, if this objective later expires uncaptured, it can be counted as a fail.
+        var attempt = await GetOrCreateAttemptAsync(db, userId, id, now, ct);
+
+        if (!FlagsMatch(objective.Flag, flag))
+        {
+            await db.SaveChangesAsync(ct);
+            return Results.Ok(new SubmitFlagResponse(false, 0, "Incorrect flag. Keep digging."));
+        }
+
+        var points = await CompleteCaptureAsync(db, social, objective, attempt, player, userId, username, now, ct);
+        return Results.Ok(new SubmitFlagResponse(true, points, $"Flag captured! +{points} points."));
+    }
+
+    // VULN-SPOT #02 (XSS): the real capture path. A stored XSS payload runs in the feed, reads the hidden
+    // notice (window.__trollnetNotices) and beacons the flag here. We require BOTH the correct flag AND
+    // evidence that the player actually stored a payload, so simply reading the flag in the console fails.
+    private static async Task<IResult> XssProof(int id, SubmitFlagRequest request, ClaimsPrincipal user, GameDbContext db, SocialClient social, TimeProvider time, CancellationToken ct)
+    {
+        var flag = request.Flag?.Trim();
+        if (string.IsNullOrEmpty(flag) || flag.Length > MaxFlagLength)
+        {
+            return Results.BadRequest(new ErrorResponse("Flag is required."));
+        }
+
+        var objective = await db.Objectives.FirstOrDefaultAsync(o => o.Id == id && o.Vector == FlagVector.Xss, ct);
+        if (objective is null)
+        {
+            return Results.NotFound(new ErrorResponse("No XSS objective with that id."));
+        }
+
+        var now = time.GetUtcNow().UtcDateTime;
+        if (objective.IsCompleted)
+        {
+            return Results.Conflict(new ErrorResponse($"Already captured by @{objective.CompletedByUsername}."));
+        }
+        if (objective.ExpiresAt <= now)
+        {
+            return Results.Json(new ErrorResponse("Too late: the moderator already reviewed this post."), statusCode: StatusCodes.Status410Gone);
+        }
+
+        var userId = user.GetUserId();
+        var username = user.GetUserName();
+        var player = await GetOrCreatePlayerAsync(db, userId, username, now, ct);
+        if (player.Mode == GameMode.Challenge && player.ChallengeStatus == ChallengeStatus.Ended)
+        {
+            await db.SaveChangesAsync(ct);
+            return Results.Json(new ErrorResponse("Challenge over. Restart the challenge (or switch to Educational) to play again."),
+                statusCode: StatusCodes.Status403Forbidden);
+        }
+
+        var attempt = await GetOrCreateAttemptAsync(db, userId, id, now, ct);
+
+        if (!FlagsMatch(objective.Flag, flag))
+        {
+            await db.SaveChangesAsync(ct);
+            return Results.Ok(new SubmitFlagResponse(false, 0, "The beacon carried the wrong flag."));
+        }
+
+        // Enforce the XSS act: the player must have stored a payload-looking post/comment.
+        if (!await social.HasXssPayloadAsync(userId, ct))
+        {
+            await db.SaveChangesAsync(ct);
+            return Results.Ok(new SubmitFlagResponse(false, 0, "No stored payload found. Post an XSS payload that beacons the flag, don't just read it."));
+        }
+
+        var points = await CompleteCaptureAsync(db, social, objective, attempt, player, userId, username, now, ct);
+        return Results.Ok(new SubmitFlagResponse(true, points, $"XSS landed — flag captured! +{points} points."));
+    }
+
+    /// <summary>Shared capture: mark the objective done, award mode-aware points, and deface the target post.</summary>
+    private static async Task<int> CompleteCaptureAsync(
+        GameDbContext db, SocialClient social, Objective objective, ObjectiveAttempt attempt, PlayerState player,
+        int userId, string username, DateTime now, CancellationToken ct)
+    {
+        // Educational mode awards half points; Challenge mode awards the full value.
+        var points = player.Mode == GameMode.Educational ? objective.Points / 2 : objective.Points;
 
         // VULN-SPOT #14: Race Condition, TOCTOU (CWE-362) — INTENTIONAL FOR TRAINING
-        //   The "is it already captured?" check and the write are separate operations with no transaction
-        //   and no conditional UPDATE. Two parallel correct submissions both see IsCompleted == false,
-        //   both set the winner to themselves, and both add the points.
-        //   Fix: one atomic `UPDATE ... WHERE NOT IsCompleted` inside a transaction; only one row can be claimed.
+        //   The "is it already captured?" check and the write are separate operations with no transaction.
+        //   Fix: one atomic `UPDATE ... WHERE NOT IsCompleted` inside a transaction.
         objective.IsCompleted = true;
         objective.CompletedByUserId = userId;
         objective.CompletedByUsername = username;
         objective.CompletedAt = now;
+        attempt.Completed = true;
         await db.SaveChangesAsync(ct);
 
         var score = await db.Scores.FirstOrDefaultAsync(s => s.UserId == userId, ct);
@@ -172,8 +292,126 @@ public static class GameEndpoints
         }
         await db.SaveChangesAsync(ct);
 
-        return Results.Ok(new SubmitFlagResponse(true, points, $"Flag captured! +{points} points."));
+        // Trolling flavour: deface the captured post with absurd text (best-effort — never fail the capture).
+        if (objective.TargetPostId is int postId)
+        {
+            try
+            {
+                await social.DefacePostAsync(postId, ContentLibrary.Pick(ContentLibrary.TrollDefacements), ct);
+            }
+            catch
+            {
+                /* social unavailable — the capture still counts */
+            }
+        }
+
+        return points;
     }
+
+    // ---- Educational / Challenge mode ----
+
+    private static async Task<IResult> GetMode(ClaimsPrincipal user, GameDbContext db, TimeProvider time, CancellationToken ct)
+    {
+        var now = time.GetUtcNow().UtcDateTime;
+        var player = await GetOrCreatePlayerAsync(db, user.GetUserId(), user.GetUserName(), now, ct);
+        await db.SaveChangesAsync(ct);
+        return Results.Ok(ToDto(player));
+    }
+
+    private static async Task<IResult> SetMode(SetModeRequest request, ClaimsPrincipal user, GameDbContext db, TimeProvider time, CancellationToken ct)
+    {
+        if (!Enum.TryParse<GameMode>(request.Mode, ignoreCase: true, out var mode))
+        {
+            return Results.BadRequest(new ErrorResponse("Mode must be 'Educational' or 'Challenge'."));
+        }
+
+        var now = time.GetUtcNow().UtcDateTime;
+        var userId = user.GetUserId();
+        var player = await GetOrCreatePlayerAsync(db, userId, user.GetUserName(), now, ct);
+
+        // Switching modes starts a fresh run: reset the fail counter and clear this player's engagement
+        // history, so hints seen in Educational do not carry over into a Challenge run.
+        player.Mode = mode;
+        player.Fails = 0;
+        player.ChallengeScore = 0;
+        player.StartedAt = now;
+        player.EndedAt = null;
+        player.ChallengeStatus = mode == GameMode.Challenge ? ChallengeStatus.Active : ChallengeStatus.None;
+
+        var attempts = await db.ObjectiveAttempts.Where(a => a.UserId == userId).ToListAsync(ct);
+        db.ObjectiveAttempts.RemoveRange(attempts);
+
+        await db.SaveChangesAsync(ct);
+        return Results.Ok(ToDto(player));
+    }
+
+    private static async Task<IResult> SkipObjective(int id, ClaimsPrincipal user, GameDbContext db, TimeProvider time, CancellationToken ct)
+    {
+        var now = time.GetUtcNow().UtcDateTime;
+        var userId = user.GetUserId();
+        var player = await GetOrCreatePlayerAsync(db, userId, user.GetUserName(), now, ct);
+
+        var objective = await db.Objectives.FirstOrDefaultAsync(o => o.Id == id, ct);
+        if (objective is null)
+        {
+            return Results.NotFound(new ErrorResponse("Objective not found."));
+        }
+
+        var attempt = await GetOrCreateAttemptAsync(db, userId, id, now, ct);
+        if (!attempt.Completed && !attempt.Failed)
+        {
+            attempt.Failed = true;
+            await RegisterFailAsync(db, player, now, ct);
+        }
+
+        await db.SaveChangesAsync(ct);
+        return Results.Ok(ToDto(player));
+    }
+
+    /// <summary>
+    /// Count one failed objective (expired or skipped). When it ends a Challenge run, snapshot the player's
+    /// current score so the summary can show the saved result. Shared by the skip endpoint and the engine.
+    /// </summary>
+    internal static async Task RegisterFailAsync(GameDbContext db, PlayerState player, DateTime now, CancellationToken ct)
+    {
+        player.Fails++;
+        if (player.Mode == GameMode.Challenge && player.ChallengeStatus == ChallengeStatus.Active && player.Fails >= ChallengeMaxFails)
+        {
+            player.ChallengeStatus = ChallengeStatus.Ended;
+            player.EndedAt = now;
+            var score = await db.Scores.AsNoTracking().FirstOrDefaultAsync(s => s.UserId == player.UserId, ct);
+            player.ChallengeScore = score?.Points ?? 0;
+        }
+    }
+
+    internal static async Task<PlayerState> GetOrCreatePlayerAsync(GameDbContext db, int userId, string username, DateTime now, CancellationToken ct)
+    {
+        var player = await db.PlayerStates.FirstOrDefaultAsync(p => p.UserId == userId, ct);
+        if (player is null)
+        {
+            player = new PlayerState { UserId = userId, Username = username, Mode = GameMode.Educational, StartedAt = now };
+            db.PlayerStates.Add(player);
+        }
+        else
+        {
+            player.Username = username;
+        }
+        return player;
+    }
+
+    private static async Task<ObjectiveAttempt> GetOrCreateAttemptAsync(GameDbContext db, int userId, int objectiveId, DateTime now, CancellationToken ct)
+    {
+        var attempt = await db.ObjectiveAttempts.FirstOrDefaultAsync(a => a.UserId == userId && a.ObjectiveId == objectiveId, ct);
+        if (attempt is null)
+        {
+            attempt = new ObjectiveAttempt { UserId = userId, ObjectiveId = objectiveId, CreatedAt = now };
+            db.ObjectiveAttempts.Add(attempt);
+        }
+        return attempt;
+    }
+
+    private static ModeDto ToDto(PlayerState p) =>
+        new(p.Mode.ToString(), p.Fails, ChallengeMaxFails, p.ChallengeStatus.ToString(), p.ChallengeScore);
 
     private static async Task<IResult> RevealFlag(int id, GameDbContext db, CancellationToken ct)
     {

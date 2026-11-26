@@ -1,23 +1,27 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { VULN_TIPS } from '../vulnerabilityTips';
+import { getVulnTips } from '../vulnerabilityTips';
+import { pick, useLang } from '../i18n';
 import { CommandTemplate } from './Terminal';
 
 export function TipsView({ focusId }: { focusId?: string | null }) {
+  const { lang } = useLang();
+  const L = (pl: string, en: string) => pick(lang, pl, en);
   const [filter, setFilter] = useState('');
   const [openId, setOpenId] = useState<string | null>(focusId ?? null);
   const focusedRef = useRef<HTMLDetailsElement | null>(null);
-  const focusedTip = focusId ? VULN_TIPS.find((t) => t.id === focusId) : undefined;
+  const allTips = useMemo(() => getVulnTips(lang), [lang]);
+  const focusedTip = focusId ? allTips.find((t) => t.id === focusId) : undefined;
 
   const tips = useMemo(() => {
     const q = filter.trim().toLowerCase();
-    if (!q) return VULN_TIPS;
-    return VULN_TIPS.filter((t) =>
+    if (!q) return allTips;
+    return allTips.filter((t) =>
       [t.id, t.title, t.cwe, t.plain, t.why, t.notice, t.fix, t.try]
         .join(' ')
         .toLowerCase()
         .includes(q),
     );
-  }, [filter]);
+  }, [filter, allTips]);
 
   useEffect(() => {
     if (!focusId) return;
@@ -32,28 +36,32 @@ export function TipsView({ focusId }: { focusId?: string | null }) {
   return (
     <div className="stack">
       <div className="intro">
-        <h2>Training tips</h2>
+        <h2>{L('Wskazówki treningowe', 'Training tips')}</h2>
         <p className="muted small">
-          Plain-language hints for every intentional vulnerability in this local lab. Open one to see
-          what is happening, how to prove it, and how the real fix would look.
+          {L(
+            'Wskazówki prostym językiem do każdej celowej podatności w tym lokalnym labie. Otwórz jedną, by zobaczyć, co się dzieje, jak to udowodnić i jak wyglądałaby prawdziwa poprawka.',
+            'Plain-language hints for every intentional vulnerability in this local lab. Open one to see what is happening, how to prove it, and how the real fix would look.',
+          )}
         </p>
         {focusedTip && (
           <p className="accent-text small">
-            Showing the hint for this objective: #{focusedTip.id} {focusedTip.title}. Use the Tips tab
-            to browse all hints.
+            {L(
+              `Pokazuję wskazówkę do tego zadania: #${focusedTip.id} ${focusedTip.title}. Użyj zakładki Wskazówki, by przeglądać wszystkie.`,
+              `Showing the hint for this objective: #${focusedTip.id} ${focusedTip.title}. Use the Tips tab to browse all hints.`,
+            )}
           </p>
         )}
       </div>
 
       <input
         className="tip-search"
-        placeholder="Filter by number, name, CWE or keyword..."
+        placeholder={L('Filtruj po numerze, nazwie, CWE lub słowie kluczowym...', 'Filter by number, name, CWE or keyword...')}
         value={filter}
         onChange={(e) => setFilter(e.target.value)}
-        aria-label="Filter training tips"
+        aria-label={L('Filtruj wskazówki treningowe', 'Filter training tips')}
       />
 
-      {tips.length === 0 && <p className="muted center">No tips match that search.</p>}
+      {tips.length === 0 && <p className="muted center">{L('Żadna wskazówka nie pasuje do wyszukiwania.', 'No tips match that search.')}</p>}
 
       <div className="list">
         {tips.map((tip) => (
@@ -76,16 +84,16 @@ export function TipsView({ focusId }: { focusId?: string | null }) {
             <div className="tip-body">
               <p>{tip.plain}</p>
               <p>
-                <strong>Why it works:</strong> {tip.why}
+                <strong>{L('Dlaczego działa:', 'Why it works:')}</strong> {tip.why}
               </p>
               <p>
-                <strong>What to notice:</strong> {tip.notice}
+                <strong>{L('Na co zwrócić uwagę:', 'What to notice:')}</strong> {tip.notice}
               </p>
               <p className="accent-text small">
-                <strong>Try:</strong> <code>{tip.try}</code>
+                <strong>{L('Wypróbuj:', 'Try:')}</strong> <code>{tip.try}</code>
               </p>
               <p className="success-text small">
-                <strong>Fix:</strong> {tip.fix}
+                <strong>{L('Poprawka:', 'Fix:')}</strong> {tip.fix}
               </p>
               {tip.curl && (
                 <CommandTemplate

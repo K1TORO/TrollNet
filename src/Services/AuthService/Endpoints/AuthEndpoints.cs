@@ -17,6 +17,9 @@ public sealed record UserDto(int Id, string Username, string Role)
 
 public sealed record AuthResponse(string Token, DateTime ExpiresAt, UserDto User);
 
+// VULN-SPOT #16: body of the leaky debug-config endpoint — exposes the admin credentials.
+public sealed record DebugConfigDto(string Environment, string AdminUsername, string AdminPassword, string Warning);
+
 public static partial class PasswordRules
 {
     public const int MinPasswordLength = 8;
@@ -60,7 +63,25 @@ public static class AuthEndpoints
         group.MapPost("/register", Register);
         group.MapPost("/login", Login);
         group.MapGet("/me", Me).RequireAuthorization();
+        // VULN-SPOT #16: Hard-coded / Exposed Credentials (CWE-798) — INTENTIONAL FOR TRAINING
+        //   A "debug config" endpoint left enabled leaks the seeded admin username and password to anyone.
+        //   Try: curl http://localhost:8080/api/auth/config
+        //   Fix: never expose configuration/secrets over an API; load secrets from a vault and keep them off responses.
+        group.MapGet("/config", LeakConfig);
         return app;
+    }
+
+    // VULN-SPOT #16 (continued): dumps the seeded admin credentials. The real lesson is that the credentials
+    // are committed in docker-compose.yml; this endpoint just makes them trivially discoverable in-game.
+    private static IResult LeakConfig(IConfiguration configuration)
+    {
+        var adminUsername = configuration["Seed:AdminUsername"] ?? "admin";
+        var adminPassword = configuration["Seed:AdminPassword"] ?? "";
+        return Results.Ok(new DebugConfigDto(
+            "development",
+            adminUsername,
+            adminPassword,
+            "Remove this endpoint before production. Secrets must never be returned by an API."));
     }
 
     private static async Task<IResult> Register(CredentialsRequest request, AuthDbContext db, TokenService tokens, TimeProvider time, CancellationToken ct)

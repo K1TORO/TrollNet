@@ -2,6 +2,7 @@ import { useCallback, useState, type FormEvent } from 'react';
 import { api, errorMessage, PAGE_SIZE, type Post } from '../api';
 import { useAuth } from '../auth';
 import { usePolling } from '../utils';
+import { pick, useLang } from '../i18n';
 import { PostCard } from './PostCard';
 
 const MAX_POST_LENGTH = 2000;
@@ -14,6 +15,8 @@ function mergeFirstPage(fresh: Post[], existing: Post[]): Post[] {
 }
 
 export function FeedView() {
+  const { lang } = useLang();
+  const L = (pl: string, en: string) => pick(lang, pl, en);
   const [posts, setPosts] = useState<Post[]>([]);
   const [page, setPage] = useState(1);
   const [hasMore, setHasMore] = useState(false);
@@ -56,7 +59,7 @@ export function FeedView() {
       <Composer onCreated={(post) => setPosts((list) => [post, ...list])} />
 
       {error && <p className="error">{error}</p>}
-      {loaded && posts.length === 0 && !error && <p className="muted center">The feed is quiet... for now.</p>}
+      {loaded && posts.length === 0 && !error && <p className="muted center">{L('Na feedzie cicho... na razie.', 'The feed is quiet... for now.')}</p>}
 
       <div className="list">
         {posts.map((post) => (
@@ -66,7 +69,7 @@ export function FeedView() {
 
       {hasMore && (
         <button className="ghost" onClick={loadMore}>
-          Load more
+          {L('Załaduj więcej', 'Load more')}
         </button>
       )}
     </div>
@@ -75,6 +78,8 @@ export function FeedView() {
 
 function Composer({ onCreated }: { onCreated: (post: Post) => void }) {
   const { user } = useAuth();
+  const { lang } = useLang();
+  const L = (pl: string, en: string) => pick(lang, pl, en);
   const [content, setContent] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -97,7 +102,7 @@ function Composer({ onCreated }: { onCreated: (post: Post) => void }) {
   return (
     <form className="card composer" onSubmit={submit}>
       <textarea
-        placeholder="What's stirring under the bridge?"
+        placeholder={L('Co się kotłuje pod mostem?', "What's stirring under the bridge?")}
         value={content}
         maxLength={MAX_POST_LENGTH}
         rows={3}
@@ -109,7 +114,7 @@ function Composer({ onCreated }: { onCreated: (post: Post) => void }) {
         </span>
         {error && <span className="error small">{error}</span>}
         <button className="primary" type="submit" disabled={busy || !user || !content.trim()}>
-          Post
+          {L('Opublikuj', 'Post')}
         </button>
       </div>
     </form>

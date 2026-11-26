@@ -32,4 +32,21 @@ public sealed class SocialClient(HttpClient http)
             response.EnsureSuccessStatusCode();
         }
     }
+
+    /// <summary>Replaces a captured post's content with troll text and marks it defaced. Best-effort.</summary>
+    public async Task DefacePostAsync(int postId, string content, CancellationToken ct)
+    {
+        using var response = await http.PostAsJsonAsync($"internal/deface/{postId}", new DefacePostRequest(content), ct);
+        if (response.StatusCode != HttpStatusCode.NotFound)
+        {
+            response.EnsureSuccessStatusCode();
+        }
+    }
+
+    /// <summary>True when the player has stored a post/comment that looks like an XSS payload.</summary>
+    public async Task<bool> HasXssPayloadAsync(int authorId, CancellationToken ct)
+    {
+        var result = await http.GetFromJsonAsync<XssCheckResponse>($"internal/xss-check?authorId={authorId}", ct);
+        return result?.Found ?? false;
+    }
 }

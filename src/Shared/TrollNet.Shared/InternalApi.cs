@@ -74,5 +74,11 @@ public sealed record SystemCommentRequest(string? AuthorName, string? Content);
 
 public sealed record CreatedIdResponse(int Id);
 
+// The game engine defaces a captured objective's target post with troll text (service-to-service only).
+public sealed record DefacePostRequest(string? Content);
+
+// Proof that a player actually stored an XSS payload (used to gate the XSS objective).
+public sealed record XssCheckResponse(bool Found);
+
 /// <summary>Uniform error body returned by all services: { "error": "..." }.</summary>
 public sealed record ErrorResponse(string Error);

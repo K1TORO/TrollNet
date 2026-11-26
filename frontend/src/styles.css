@@ -952,6 +952,252 @@ button.danger {
   color: var(--link);
 }
 
+/* "Explain the command" disclosure. */
+.capture-explain {
+  margin: 6px 0 0;
+}
+.capture-explain > summary {
+  cursor: pointer;
+  list-style: none;
+}
+.capture-explain > summary::-webkit-details-marker {
+  display: none;
+}
+.capture-explain > summary::before {
+  content: '▸ ';
+}
+.capture-explain[open] > summary::before {
+  content: '▾ ';
+}
+.capture-explain ul {
+  margin: 4px 0 0;
+  padding-left: 18px;
+}
+.capture-explain code {
+  font-family: var(--font-mono);
+  color: var(--link);
+}
+
+/* In-app assistant ("bot") lines + typing animation. */
+.terminal-out.bot {
+  color: var(--success);
+}
+.terminal-bot-tag {
+  filter: grayscale(0);
+}
+.bot-hint {
+  color: var(--success);
+}
+.typing-caret {
+  display: inline-block;
+  margin-left: 1px;
+  animation: typing-blink 1s steps(2, start) infinite;
+}
+@keyframes typing-blink {
+  to {
+    visibility: hidden;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .typing-caret {
+    animation: none;
+  }
+}
+
+/* Educational / Challenge mode switch in the top bar. */
+.mode-toggle {
+  display: inline-flex;
+  align-items: stretch;
+  border: 2px solid;
+  border-color: var(--bevel-dark) var(--bevel-light) var(--bevel-light) var(--bevel-dark);
+  background: var(--field);
+}
+.mode-option {
+  font-family: var(--font);
+  font-size: 11px;
+  padding: 1px 8px;
+  border: none;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+}
+.mode-option.active {
+  background: var(--button-primary);
+  color: #fff;
+}
+.mode-option:disabled {
+  cursor: default;
+  opacity: 0.6;
+}
+.mode-fails {
+  display: inline-flex;
+  align-items: center;
+  padding: 1px 8px;
+  font-size: 11px;
+  color: var(--muted);
+  border-left: 1px solid var(--bevel-dark);
+}
+.mode-fails.ended {
+  color: var(--danger);
+  font-weight: bold;
+}
+
+/* Defaced ("pwned") post: red frame + lock badge. */
+.post.defaced {
+  border-color: var(--danger) var(--danger) var(--danger) var(--danger);
+  box-shadow: inset 0 0 0 1px var(--danger);
+}
+.pwned-tag {
+  margin-left: 6px;
+  padding: 0 5px;
+  font-size: 10px;
+  font-weight: bold;
+  letter-spacing: 0.05em;
+  color: #fff;
+  background: var(--danger);
+  border-radius: 2px;
+  white-space: nowrap;
+}
+code.payload {
+  display: inline-block;
+  font-family: var(--font-mono);
+  color: var(--gold);
+  overflow-wrap: anywhere;
+}
+
+/* Multi-step capture commands (e.g. the admin credential-leak chain). */
+.capture-step {
+  margin-top: 6px;
+}
+.capture-step .step-num {
+  font-weight: bold;
+  color: var(--muted);
+}
+.capture-step .step-note {
+  display: block;
+  margin-left: 1.3em;
+  margin-top: 2px;
+}
+
+/* Focus/pin control + focused highlight on an objective card. */
+.objective-header-right {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+.focus-pin {
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  font-size: 0.9rem;
+  line-height: 1;
+  padding: 0 2px;
+  opacity: 0.4;
+  filter: grayscale(1);
+}
+.focus-pin.active {
+  opacity: 1;
+  filter: none;
+}
+.objective.focused {
+  border-color: var(--link) var(--link) var(--link) var(--link);
+  box-shadow: 0 0 0 1px var(--link);
+}
+.admin-req {
+  color: var(--gold);
+}
+
+/* Skipped objective: dropped to the bottom, marked "not completed". */
+.objective.skipped {
+  opacity: 0.6;
+}
+.objective.skipped h3 {
+  text-decoration: line-through;
+  text-decoration-color: var(--danger);
+}
+.skipped-tag {
+  color: var(--danger);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+/* In-app confirmation dialog (replaces window.confirm/alert). */
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+  background: rgba(10, 11, 15, 0.72);
+}
+.modal-panel {
+  width: 100%;
+  max-width: 420px;
+  background: var(--panel);
+  border: 2px solid;
+  border-color: var(--bevel-light) var(--bevel-dark) var(--bevel-dark) var(--bevel-light);
+  padding: 0;
+}
+.modal-title {
+  margin: 0;
+  padding: 6px 12px;
+  font-size: 0.9rem;
+  color: #e4e2da;
+  background: linear-gradient(90deg, var(--title-from), var(--title-to));
+  border-bottom: 1px solid var(--bevel-dark);
+}
+.modal-message {
+  margin: 0;
+  padding: 14px 12px;
+  color: var(--text);
+  font-size: 0.9rem;
+}
+.modal-actions {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  padding: 0 12px 12px;
+}
+.primary.danger {
+  background: var(--danger);
+  color: #1a0f0f;
+}
+
+/* "Challenge over" summary banner. */
+.challenge-over {
+  border: 2px solid;
+  border-color: var(--bevel-light) var(--bevel-dark) var(--bevel-dark) var(--bevel-light);
+  background: var(--panel);
+  padding: 12px 14px;
+}
+.challenge-over h3 {
+  margin: 0 0 4px;
+  color: var(--danger);
+}
+
+/* PL/EN language switch in the top bar. */
+.lang-toggle {
+  display: inline-flex;
+  border: 2px solid;
+  border-color: var(--bevel-dark) var(--bevel-light) var(--bevel-light) var(--bevel-dark);
+  background: var(--field);
+}
+.lang-option {
+  font-family: var(--font);
+  font-size: 11px;
+  padding: 1px 7px;
+  border: none;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+}
+.lang-option.active {
+  background: var(--button-primary);
+  color: #fff;
+}
+
 /* Terminal output rows: selectable text + an always-available per-line copy button. */
 .terminal-out,
 .terminal-screen {

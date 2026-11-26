@@ -78,7 +78,7 @@ public static class PostEndpoints
         var post = await db.Posts.AsNoTracking()
             .Where(p => p.Id == id)
             .Select(p => new PostDetailDto(
-                p.Id, p.AuthorId, p.AuthorName, p.Content, p.IsTrending, p.CreatedAt,
+                p.Id, p.AuthorId, p.AuthorName, p.Content, p.IsTrending, p.IsDefaced, p.CreatedAt,
                 p.Comments
                     .OrderBy(c => c.CreatedAt)
                     .Select(c => new CommentDto(c.Id, c.PostId, c.AuthorId, c.AuthorName, c.Content, c.CreatedAt))
