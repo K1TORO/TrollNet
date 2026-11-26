@@ -130,11 +130,13 @@ Set `DEV_TOOLS=true` to enable the testing console (`/api/dev/*` and the **Dev**
 > locally on `127.0.0.1` (or in a disposable VM). Do not deploy it, expose it to a network you care about,
 > or reuse its patterns in real software.
 
-Each marker names the vulnerability, gives its CWE ID, describes the mistake, shows a way to try it, and explains the fix. Find all of them with:
+Each marker names the vulnerability, gives its CWE ID, describes the mistake, shows a way to try it, and explains the fix. Find every `VULN-SPOT` marker in the source with:
 
 ```bash
 grep -rn "VULN-SPOT" src frontend/src frontend/nginx.conf docker-compose.yml
 ```
+
+The nine vulnerabilities that back the lab's capturable objectives (the source carries additional marked spots for reference — see `vulnerabilities.txt`):
 
 | # | Vulnerability | CWE | Where | Try it |
 |---|---|---|---|---|
@@ -142,22 +144,11 @@ grep -rn "VULN-SPOT" src frontend/src frontend/nginx.conf docker-compose.yml
 | 02 | Stored XSS | [CWE-79](https://cwe.mitre.org/data/definitions/79.html) | [PostCard.tsx](frontend/src/components/PostCard.tsx), [nginx.conf](frontend/nginx.conf) | Post `<img src=x onerror="alert(document.domain)">` |
 | 03 | IDOR / Broken Access Control | [CWE-639](https://cwe.mitre.org/data/definitions/639.html) | [PostEndpoints.cs](src/Services/SocialService/Endpoints/PostEndpoints.cs) – `DeletePost`, `DeleteComment` | `DELETE /api/posts/1` as any player |
 | 04 | Mass Assignment | [CWE-915](https://cwe.mitre.org/data/definitions/915.html) | [PostEndpoints.cs](src/Services/SocialService/Endpoints/PostEndpoints.cs), [Contracts.cs](src/Services/SocialService/Endpoints/Contracts.cs) | `POST /api/posts` with `{"content":"hi","authorId":999,"isTrending":true}` |
-| 05 | Cross-Site Request Forgery | [CWE-352](https://cwe.mitre.org/data/definitions/352.html) | [api.ts](frontend/src/api.ts), [Auth.cs](src/Shared/TrollNet.Shared/Auth.cs), [Gateway](src/Gateway/Program.cs) | Credentialed cross-origin `fetch` with no anti-forgery token |
 | 06 | Server-Side Request Forgery | [CWE-918](https://cwe.mitre.org/data/definitions/918.html) | [GameEndpoints.cs](src/Services/GameService/Endpoints/GameEndpoints.cs) – `PreviewLink` | `POST /api/link-preview {"url":"http://social-service:8080/health"}` |
-| 07 | Path Traversal / LFI | [CWE-22](https://cwe.mitre.org/data/definitions/22.html) | [PostEndpoints.cs](src/Services/SocialService/Endpoints/PostEndpoints.cs) – `GetAttachment` | `GET /api/posts/attachment?name=../../../../etc/passwd` |
 | 08 | Missing Authentication for Critical Function | [CWE-306](https://cwe.mitre.org/data/definitions/306.html) | [InternalEndpoints.cs](src/Services/SocialService/Endpoints/InternalEndpoints.cs), [Gateway appsettings](src/Gateway/appsettings.json) | `POST /internal/posts` without `X-Internal-Key` |
-| 09 | Timing side channel | [CWE-208](https://cwe.mitre.org/data/definitions/208.html) | [InternalApi.cs](src/Shared/TrollNet.Shared/InternalApi.cs), [GameEndpoints.cs](src/Services/GameService/Endpoints/GameEndpoints.cs) | Measure response times while guessing key/flag prefixes |
-| 10 | User Enumeration | [CWE-204](https://cwe.mitre.org/data/definitions/204.html) | [AuthEndpoints.cs](src/Services/AuthService/Endpoints/AuthEndpoints.cs) – `Login` | Compare 404 "no account" with 401 "wrong password" |
-| 11 | Brute Force / Missing Rate Limiting | [CWE-307](https://cwe.mitre.org/data/definitions/307.html) | [AuthEndpoints.cs](src/Services/AuthService/Endpoints/AuthEndpoints.cs), [GameEndpoints.cs](src/Services/GameService/Endpoints/GameEndpoints.cs) | Unlimited login and flag guesses |
-| 12 | Weak Password Hashing | [CWE-916](https://cwe.mitre.org/data/definitions/916.html) | [AuthEndpoints.cs](src/Services/AuthService/Endpoints/AuthEndpoints.cs) – `PasswordRules.Hash` | Unsalted SHA-256, identical passwords hash identically |
 | 13 | Improper JWT Signature Verification | [CWE-347](https://cwe.mitre.org/data/definitions/347.html) | [Auth.cs](src/Shared/TrollNet.Shared/Auth.cs) | Forge an `alg:none` token with `"role":"Admin"` |
-| 14 | Race Condition (TOCTOU) | [CWE-362](https://cwe.mitre.org/data/definitions/362.html) | [GameEndpoints.cs](src/Services/GameService/Endpoints/GameEndpoints.cs) – `SubmitFlag` | Send parallel correct submissions for one objective |
 | 15 | Sensitive Data Exposure | [CWE-200](https://cwe.mitre.org/data/definitions/200.html) | [GameEndpoints.cs](src/Services/GameService/Endpoints/GameEndpoints.cs) – `ObjectiveDto` | `GET /api/objectives` leaks the data-exposure objective's `flag` anonymously |
 | 16 | Hard-coded Credentials | [CWE-798](https://cwe.mitre.org/data/definitions/798.html) | [docker-compose.yml](docker-compose.yml) | Admin password `admin1234`; JWT/DB/internal secrets in git |
-| 17 | Spoofable Client IP | [CWE-348](https://cwe.mitre.org/data/definitions/348.html) | [Hosting.cs](src/Shared/TrollNet.Shared/Hosting.cs), [nginx.conf](frontend/nginx.conf) | Send `X-Forwarded-For: 1.2.3.4` to change rate-limit bucket |
-| 18 | Error Message Information Leak | [CWE-209](https://cwe.mitre.org/data/definitions/209.html) | All three `Program.cs` files | `GET /api/posts/search?query='` returns a stack trace |
-| 19 | Token in Browser Storage | [CWE-922](https://cwe.mitre.org/data/definitions/922.html) | [api.ts](frontend/src/api.ts) – `tokenStore` | `localStorage.getItem('trollnet.token')` after XSS |
-| 20 | Clickjacking | [CWE-1021](https://cwe.mitre.org/data/definitions/1021.html) | [nginx.conf](frontend/nginx.conf) | Embed `http://localhost:8080` in an iframe |
 
 ## Training notes
 
@@ -187,7 +178,7 @@ Each objective carries a `tipId`, so **Need a hint? (#NN)** opens that objective
 ```bash
 python3 scripts/demo_vulnerabilities.py --scan              # find/verify all markers, no server needed
 python3 scripts/demo_vulnerabilities.py --tips              # plain-language tips for all 20
-python3 scripts/demo_vulnerabilities.py --tip 7             # one tip (#07), also accepts 07
+python3 scripts/demo_vulnerabilities.py --tip 6             # one tip (#06), also accepts 06
 python3 scripts/demo_vulnerabilities.py --demo --explain    # tip, then evidence, for each class
 python3 scripts/demo_vulnerabilities.py --all --locations   # scan + demo with file:line locations
 ```

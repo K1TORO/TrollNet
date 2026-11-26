@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
 import { api, errorMessage, SCORE_CHANGED_EVENT, type Objective, type Post } from '../api';
 import { useAuth } from '../auth';
 import { formatCountdown, useNow, usePolling } from '../utils';
@@ -12,6 +12,23 @@ import { objectiveTitle, objectiveDescription, objectiveCategory } from '../obje
 import { TypingText } from './TypingText';
 
 const API = 'http://localhost:8080';
+
+// The "focused" (pinned-to-top) objective is client-only view state. ObjectivesView unmounts whenever
+// the player leaves the Objectives tab, so without persistence the pin would be lost on every tab switch.
+// sessionStorage keeps it for the browser session (and across reloads) but not forever, which suits a
+// marker tied to short-lived objectives.
+const FOCUS_KEY = 'trollnet.focusedObjective';
+
+function readFocusedId(): number | null {
+  try {
+    const raw = sessionStorage.getItem(FOCUS_KEY);
+    if (raw == null) return null;
+    const n = Number(raw);
+    return Number.isInteger(n) ? n : null;
+  } catch {
+    return null;
+  }
+}
 
 /** Tryb deweloperski: ?dev=1 w URL albo localStorage['trollnet.dev']='1'. Odsłania gotowe komendy. */
 function isDevMode(): boolean {
@@ -210,7 +227,9 @@ export function ObjectivesView({ onOpenTips, onOpenTip }: { onOpenTips: () => vo
   const { state, isChallenge, setMode, mode } = useMode();
   const [objectives, setObjectives] = useState<Objective[]>([]);
   // Client-side view state: the one "focused" (pinned-to-top) objective and the ones the player skipped.
-  const [focusedId, setFocusedId] = useState<number | null>(null);
+  // focusedId is restored from sessionStorage so the pin survives switching away from the Objectives tab
+  // (which unmounts this component).
+  const [focusedId, setFocusedId] = useState<number | null>(readFocusedId);
   const [skippedIds, setSkippedIds] = useState<Set<number>>(() => new Set());
   const [loaded, setLoaded] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -242,20 +261,36 @@ export function ObjectivesView({ onOpenTips, onOpenTip }: { onOpenTips: () => vo
     [skippedIds],
   );
 
-  // Switching mode starts a fresh view: drop focus and the optimistic skipped list, then refresh (the
-  // server has reset this player's attempts, so attemptFailed clears too).
+  // Persist the pinned objective so it survives this component unmounting on a tab switch.
   useEffect(() => {
-    setFocusedId(null);
-    setSkippedIds(new Set());
+    try {
+      if (focusedId == null) sessionStorage.removeItem(FOCUS_KEY);
+      else sessionStorage.setItem(FOCUS_KEY, String(focusedId));
+    } catch {
+      /* storage unavailable */
+    }
+  }, [focusedId]);
+
+  // Switching mode starts a fresh view: drop focus and the optimistic skipped list, then refresh (the
+  // server has reset this player's attempts, so attemptFailed clears too). Only on an ACTUAL mode change —
+  // not on mount — so a focus restored from sessionStorage is not wiped when the tab is reopened.
+  const prevModeRef = useRef(mode);
+  useEffect(() => {
+    if (prevModeRef.current !== mode) {
+      prevModeRef.current = mode;
+      setFocusedId(null);
+      setSkippedIds(new Set());
+    }
     refresh();
   }, [mode, refresh]);
 
   // Drop focus once the focused objective is no longer an active, non-skipped card (captured/expired/skipped).
+  // Wait for the first load so a focus restored from storage is not cleared before objectives arrive.
   useEffect(() => {
-    if (focusedId != null && !objectives.some((o) => o.id === focusedId && !isObjectiveSkipped(o) && !o.isCompleted)) {
+    if (loaded && focusedId != null && !objectives.some((o) => o.id === focusedId && !isObjectiveSkipped(o) && !o.isCompleted)) {
       setFocusedId(null);
     }
-  }, [objectives, focusedId, isObjectiveSkipped]);
+  }, [loaded, objectives, focusedId, isObjectiveSkipped]);
 
   // Order: focused first, then the other active objectives, then skipped (failed), then completed.
   const orderedObjectives = useMemo(() => {

@@ -110,6 +110,15 @@ export function terminalHint(command: string, output: string, status: number | n
   const firstWord = trimmed.split(/\s+/)[0];
   const isAssign = /^[A-Za-z_]\w*=/.test(firstWord);
 
+  // 0) Dobre rozwiązanie: komenda wydobyła już flagę (działa dla każdego wektora, który zwraca ją w terminalu —
+  //    SQLi/IDOR/MissingAuth w systemNote, SSRF w bodyPreview, DataLeak, endpoint admina). Potwierdź i skieruj
+  //    do wysłania, zamiast milczeć przy sukcesie.
+  const flagMatch = output.match(/TROLL\{[^}]+\}/);
+  if (flagMatch) {
+    return L(`Jest flaga:  ${flagMatch[0]}  — skopiuj ją w całości i wklej w polu „Wpisz flagę" na karcie zadania, żeby ją zaliczyć.`,
+      `There's your flag:  ${flagMatch[0]}  — copy it whole and paste it into the task card's "Enter flag" field to capture it.`);
+  }
+
   // 1) Zła/nieznana komenda (np. "crul", "GET", "curll").
   if (!isAssign && !KNOWN_COMMANDS.includes(firstWord)) {
     const near = nearestCommand(firstWord);
@@ -140,6 +149,32 @@ export function terminalHint(command: string, output: string, status: number | n
   if (o.includes('bad header')) {
     return L('Zły nagłówek — format to  -H "Nazwa: wartość",  np.  -H "Content-Type: application/json".',
       'Bad header — use  -H "Name: value",  e.g.  -H "Content-Type: application/json".');
+  }
+
+  // 4a) SSRF: /api/link-preview zawsze zwraca ZEWNĘTRZNE 200 (sam podgląd się udał), a prawdziwy status i
+  //     ciało pobranego celu są zagnieżdżone w JSON (statusCode / bodyPreview). Bez zajrzenia do środka
+  //     pomocnik milczałby przy pudle w skarbcu i nie wskazałby flagi przy trafieniu. Dlatego parsujemy go tu.
+  if (command.toLowerCase().includes('/api/link-preview')) {
+    try {
+      const dto = JSON.parse(output.trim()) as { url?: unknown; statusCode?: unknown; bodyPreview?: unknown };
+      if (typeof dto.statusCode === 'number') {
+        const inner = dto.statusCode;
+        const targetUrl = typeof dto.url === 'string' ? dto.url : '';
+        const isVault = /\/internal\/vault\//.test(targetUrl);
+        // A nested 200 that carries the flag is already handled by the success check at the top (the flag
+        // appears in bodyPreview, i.e. in `output`). Here we only need the failure cases.
+        if (inner === 404 && isVault) {
+          return L('Podgląd linku zadziałał (SSRF ✓), ale skarbiec zwrócił 404: pod tym numerem nie ma AKTYWNEGO zadania SSRF. Skarbiec jest kluczowany numerem OBJECTIVE — użyj numeru z bieżącej karty SSRF (najpewniej przyciskiem „Uruchom w terminalu"), i sprawdź, czy zadanie wciąż trwa.',
+            'The link-preview worked (SSRF ✓), but the vault returned 404: there is no ACTIVE SSRF objective at that number. The vault is keyed by the OBJECTIVE id — use the number from the current SSRF card (easiest via its "Run in terminal" button), and check the objective is still live.');
+        }
+        if (inner >= 400) {
+          return L(`Podgląd linku zadziałał, ale cel zwrócił HTTP ${inner}. Sprawdź pole "url": hosta, ścieżkę i numer na końcu.`,
+            `The link-preview worked, but the target returned HTTP ${inner}. Check the "url": the host, the path and the trailing number.`);
+        }
+      }
+    } catch {
+      /* ciało nie jest JSON-em, który umiemy odczytać — spadamy do ogólnych podpowiedzi */
+    }
   }
 
   // 4) Zła ścieżka API — zaproponuj najbliższą istniejącą.

