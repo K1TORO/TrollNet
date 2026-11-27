@@ -12,14 +12,24 @@ export function TypingText({
   speed = 18,
   className,
   caret = true,
+  onUpdate,
 }: {
   text: string;
   speed?: number;
   className?: string;
   caret?: boolean;
+  /** Called after each revealed character (e.g. to keep a scroll view pinned to the bottom). */
+  onUpdate?: () => void;
 }) {
   const [count, setCount] = useState(() => (prefersReducedMotion() ? text.length : 0));
   const timer = useRef<number | null>(null);
+  const onUpdateRef = useRef(onUpdate);
+  onUpdateRef.current = onUpdate;
+
+  // Fire onUpdate after the DOM reflects each reveal (so a scroll-to-bottom sees the new content).
+  useEffect(() => {
+    onUpdateRef.current?.();
+  }, [count]);
 
   useEffect(() => {
     if (prefersReducedMotion()) {

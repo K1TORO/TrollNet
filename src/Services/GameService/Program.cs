@@ -29,6 +29,21 @@ builder.Services.AddHttpClient<SocialClient>(client =>
         client.Timeout = TimeSpan.FromSeconds(10);
     })
     .AddHttpMessageHandler<InternalApiKeyHandler>();
+
+// Phase 2: AI-generated troll feed content. AiContentRefiller fills AiPostCache in the background; the game
+// engine consumes it and falls back to the static ContentLibrary when the assistant is unavailable.
+builder.Services.AddSingleton<AiPostCache>();
+builder.Services.AddHttpClient<AiContentClient>(client =>
+{
+    var baseUrl = builder.Configuration["Services:Ai"];
+    if (!string.IsNullOrWhiteSpace(baseUrl))
+    {
+        client.BaseAddress = new Uri(baseUrl.EndsWith('/') ? baseUrl : baseUrl + "/");
+    }
+    client.Timeout = TimeSpan.FromSeconds(60); // model generation can be slow on CPU
+});
+builder.Services.AddHostedService<AiContentRefiller>();
+
 builder.Services.AddHostedService<GameEngineService>();
 
 builder.Services.AddRateLimiter(options =>

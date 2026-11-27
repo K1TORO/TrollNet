@@ -9,6 +9,7 @@ import { TipsView } from './components/TipsView';
 import { DocsView } from './components/DocsView';
 import { DevView } from './components/DevView';
 import { onTerminalLoad, Terminal } from './components/Terminal';
+import { AiTutor } from './components/AiTutor';
 import { pick, useLang, type Lang } from './i18n';
 import { useMode } from './mode';
 import { useConfirm } from './components/Confirm';
@@ -182,6 +183,7 @@ export default function App() {
           &gt;_ Terminal
         </button>
       )}
+      <AiTutor />
     </div>
   );
 }

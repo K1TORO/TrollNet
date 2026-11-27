@@ -839,10 +839,13 @@ button.danger {
   }
 }
 
-/* Docked terminal: fixed to the right on wide screens, to the bottom on narrow ones. */
+/* Docked terminal: fixed to the right on wide screens, to the bottom on narrow ones.
+   It overlays the page (no padding shift), so the main section does NOT move when it opens. */
 
-.shell.with-terminal {
-  padding-right: 460px;
+/* Keep the AI widgets clear of the right-docked terminal (shift them left past it). */
+.shell.with-terminal .ai-toggle,
+.shell.with-terminal .ai-panel {
+  right: 476px;
 }
 
 .side-terminal {
@@ -892,9 +895,89 @@ button.danger {
   cursor: pointer;
 }
 
-@media (max-width: 1240px) {
+/* AI tutor chat: floating toggle + panel (bottom-right, above the terminal toggle). */
+.ai-toggle {
+  position: fixed;
+  right: 16px;
+  bottom: 58px;
+  z-index: 20;
+  padding: 8px 12px;
+  font-size: 13px;
+  color: var(--link);
+  background: #0d0e13;
+  border: 1px solid var(--bevel-light);
+  border-radius: 6px;
+  cursor: pointer;
+}
+.ai-panel {
+  position: fixed;
+  right: 16px;
+  bottom: 16px;
+  z-index: 40;
+  display: flex;
+  flex-direction: column;
+  width: min(380px, calc(100vw - 32px));
+  height: min(520px, calc(100vh - 32px));
+  background: var(--panel);
+  border: 2px solid;
+  border-color: var(--bevel-light) var(--bevel-dark) var(--bevel-dark) var(--bevel-light);
+}
+.ai-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 5px 10px;
+  color: #e4e2da;
+  background: linear-gradient(90deg, var(--title-from), var(--title-to));
+  border-bottom: 1px solid var(--bevel-dark);
+}
+.ai-title {
+  font-size: 0.82rem;
+  font-weight: bold;
+}
+.ai-messages {
+  flex: 1;
+  overflow-y: auto;
+  padding: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.ai-msg {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.ai-msg .ai-role {
+  font-size: 0.7rem;
+  color: var(--muted);
+}
+.ai-msg.user .ai-role {
+  color: var(--link);
+}
+.ai-text {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font-size: 0.86rem;
+}
+.ai-msg.assistant .ai-text {
+  color: var(--success);
+}
+.ai-input-row {
+  display: flex;
+  gap: 8px;
+  padding: 8px;
+  border-top: 1px solid var(--bevel-dark);
+}
+.ai-input {
+  flex: 1;
+  min-width: 0;
+}
+
+/* Below this width a centered 760px page + 460px side terminal would overlap, so dock the terminal at the
+   bottom instead. Only the vertical space is reserved (padding-bottom) — the page never shifts sideways. */
+@media (max-width: 1680px) {
   .shell.with-terminal {
-    padding-right: 0;
     padding-bottom: 42vh;
   }
   .side-terminal {
@@ -906,6 +989,15 @@ button.danger {
   }
   .terminal-live {
     border-radius: 0;
+  }
+  /* AI widgets sit ABOVE the bottom-docked terminal, not to its left. */
+  .shell.with-terminal .ai-toggle,
+  .shell.with-terminal .ai-panel {
+    right: 16px;
+    bottom: calc(42vh + 16px);
+  }
+  .shell.with-terminal .ai-panel {
+    height: min(520px, calc(58vh - 32px));
   }
 }
 

@@ -69,6 +69,9 @@ services:
       # VULN-SPOT #16: hard-coded internal API key (CWE-798). Also no longer required on endpoints (#08).
       InternalApi__Key: internal-api-key-for-training-only
       Services__Social: http://social-service:8080/
+      # AI feed content (Phase 2): the game engine asks ai-service for troll posts, falling back to the
+      # static ContentLibrary when the assistant is unavailable.
+      Services__Ai: http://ai-service:8080/
       # Testing console: set DEV_TOOLS=true (e.g. in .env or the shell) to expose /api/dev/* so you can
       # spawn a specific objective on demand. OFF by default — it hands out flags, so never enable it
       # outside the local lab.
@@ -82,6 +85,29 @@ services:
       social-service:
         condition: service_started
 
+  # AI tutor / security Q&A. Provider-agnostic (any OpenAI-compatible endpoint). OFF by default: the UI then
+  # falls back to the heuristic bot. See AI-INTEGRATION-PLAN.md for enabling local (Ollama/llama.cpp) or cloud.
+  ai-service:
+    build:
+      context: .
+      dockerfile: src/Services/AiService/Dockerfile
+    restart: unless-stopped
+    # On `frontend` for egress/host access (cloud API or a local model server via host.docker.internal) AND on
+    # `backend` so the game-service (internal network) can reach it for AI-generated feed content.
+    networks: [frontend, backend]
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    environment:
+      <<: *jwt-env
+      #   Local (Ollama):  AI_ENABLED=true AI_BASE_URL=http://host.docker.internal:11434/v1 AI_MODEL=llama3.2:3b
+      #   Cloud:           AI_ENABLED=true AI_BASE_URL=https://api.openai.com/v1 AI_MODEL=gpt-4o-mini AI_API_KEY=<key>
+      Assistant__Enabled: ${AI_ENABLED:-false}
+      Assistant__BaseUrl: ${AI_BASE_URL:-}
+      Assistant__Model: ${AI_MODEL:-}
+      Assistant__ApiKey: ${AI_API_KEY:-}
+      # Per-request model timeout. Raise it if long answers still time out on a slow CPU (stay under ~100s).
+      Assistant__TimeoutSeconds: ${AI_TIMEOUT:-90}
+
   gateway:
     build:
       context: .
@@ -92,6 +118,7 @@ services:
       - auth-service
       - social-service
       - game-service
+      - ai-service
 
   frontend:
     build:
