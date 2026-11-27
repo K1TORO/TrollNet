@@ -7,6 +7,7 @@ import { PostCard } from './PostCard';
 import { wrongFlagHint } from './hintEngine';
 import { pick, useLang, type Lang } from '../i18n';
 import { useMode } from '../mode';
+import { useAssistantEnabled } from '../assistant';
 import { useConfirm } from './Confirm';
 import { objectiveTitle, objectiveDescription, objectiveCategory } from '../objectiveText';
 import { TypingText } from './TypingText';
@@ -403,6 +404,9 @@ function ObjectiveCard({ objective: o, now, onChanged, onOpenTip, focused, skipp
   const L = (pl: string, en: string) => pick(lang, pl, en);
   const { isChallenge, state, skip, refresh: refreshMode } = useMode();
   const confirm = useConfirm();
+  const aiEnabled = useAssistantEnabled();
+  const [aiHint, setAiHint] = useState<string | null>(null);
+  const [aiBusy, setAiBusy] = useState(false);
   const challengeEnded = isChallenge && state?.challengeStatus === 'Ended';
   const effectivePoints = isChallenge ? o.points : Math.floor(o.points / 2);
   const isXss = o.vector === 'Xss';
@@ -490,6 +494,28 @@ function ObjectiveCard({ objective: o, now, onChanged, onOpenTip, focused, skipp
     } finally {
       setBusy(false);
       refreshMode();
+    }
+  }
+
+  async function askAi() {
+    if (aiBusy) return;
+    setAiBusy(true);
+    setAiHint(null);
+    try {
+      const res = await api.assistantHint({
+        title: o.title,
+        vector: o.vector,
+        description: o.description,
+        tipId: o.tipId,
+        mode: isChallenge ? 'Challenge' : 'Educational',
+        lastError: result && !result.ok ? result.text : undefined,
+        lang,
+      });
+      setAiHint(res.text);
+    } catch {
+      setAiHint(wrongFlagHint(o, lang)); // fall back to the heuristic hint if the AI is unavailable
+    } finally {
+      setAiBusy(false);
     }
   }
 
@@ -647,6 +673,11 @@ function ObjectiveCard({ objective: o, now, onChanged, onOpenTip, focused, skipp
               : L(`Pokaż post-cel #${o.targetPostId}`, `Show target post #${o.targetPostId}`)}
           </button>
         )}
+        {open && aiEnabled && (
+          <button className="link small" onClick={askAi} disabled={aiBusy}>
+            🔮 {L('Zapytaj Wyrocznię o podpowiedź', 'Ask the Oracle for a hint')}
+          </button>
+        )}
         {open && !challengeEnded && (
           <button className="link small danger" onClick={onSkip} disabled={busy}>
             {L('Pomiń (poddaj się)', 'Skip (give up)')}
@@ -680,7 +711,13 @@ function ObjectiveCard({ objective: o, now, onChanged, onOpenTip, focused, skipp
       {result && <p className={result.ok ? 'success-text' : 'error'}>{result.text}</p>}
       {result && !result.ok && result.hint && (
         <p className="muted small bot-hint">
-          <span aria-hidden="true">🤖</span> <TypingText key={result.hint} text={result.hint} />
+          <span aria-hidden="true">🔮</span> <TypingText key={result.hint} text={result.hint} />
+        </p>
+      )}
+      {aiBusy && <p className="muted small bot-hint">🔮 {L('Wyrocznia myśli…', 'The Oracle is thinking…')}</p>}
+      {aiHint && !aiBusy && (
+        <p className="muted small bot-hint">
+          <span aria-hidden="true">🔮</span> <TypingText key={aiHint} text={aiHint} />
         </p>
       )}
     </article>

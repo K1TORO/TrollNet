@@ -62,6 +62,27 @@ export interface SubmitResult {
   message: string;
 }
 
+export interface AssistantStatus {
+  enabled: boolean;
+}
+export interface AssistantReply {
+  text: string;
+}
+export interface HintContext {
+  title?: string;
+  vector?: string;
+  description?: string;
+  tipId?: string;
+  mode?: string;
+  lastCommand?: string;
+  lastError?: string;
+  lang?: string;
+}
+export interface ChatMsg {
+  role: 'user' | 'assistant';
+  content: string;
+}
+
 export type GameMode = 'Educational' | 'Challenge';
 export type ChallengeStatus = 'None' | 'Active' | 'Ended';
 
@@ -223,6 +244,12 @@ export const api = {
 
   leaderboard: () => request<ScoreEntry[]>('/scores/leaderboard'),
   myScore: () => request<ScoreEntry>('/scores/me'),
+
+  // AI tutor (ai-service). Falls back to the heuristic bot when the assistant is not configured.
+  assistantStatus: () => request<AssistantStatus>('/assistant/status'),
+  assistantHint: (body: HintContext) => request<AssistantReply>('/assistant/hint', { method: 'POST', body: json(body) }),
+  assistantChat: (messages: ChatMsg[], lang: string) =>
+    request<AssistantReply>('/assistant/chat', { method: 'POST', body: json({ messages, lang }) }),
 
   // Testing console (only present when DevTools is enabled in compose).
   devStatus: () => request<DevStatus>('/dev/status'),

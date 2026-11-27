@@ -543,7 +543,7 @@ export function Terminal({ title = 'user@trollnet — bash', onClose }: Terminal
             </div>
           ) : l.kind === 'bot' ? (
             <div key={l.id} className="terminal-out bot">
-              <span className="terminal-bot-tag" aria-hidden="true">🤖</span>{' '}
+              <span className="terminal-bot-tag" aria-hidden="true">🔮</span>{' '}
               <TypingText text={l.text} />
             </div>
           ) : (

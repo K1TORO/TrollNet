@@ -32,6 +32,7 @@ public sealed class GameEngineService(
     IServiceScopeFactory scopeFactory,
     IOptions<GameEngineOptions> options,
     TimeProvider time,
+    AiPostCache aiCache,
     ILogger<GameEngineService> logger) : BackgroundService
 {
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
@@ -72,7 +73,7 @@ public sealed class GameEngineService(
 
         await RunModeratorReviewAsync(db, social, now, ct);
         await SpawnObjectiveAsync(db, social, settings, now, ct);
-        await GenerateAmbientContentAsync(db, social, settings, now, ct);
+        await GenerateAmbientContentAsync(db, social, aiCache, settings, now, ct);
     }
 
     /// <summary>The moderator reviews targets whose time is up: the post is removed and the objective closes.</summary>
@@ -139,13 +140,15 @@ public sealed class GameEngineService(
         logger.LogInformation("Spawned objective {ObjectiveId} '{Title}' targeting post {PostId}.", objective.Id, objective.Title, objective.TargetPostId);
     }
 
-    private static async Task GenerateAmbientContentAsync(GameDbContext db, SocialClient social, GameEngineOptions settings, DateTime now, CancellationToken ct)
+    private static async Task GenerateAmbientContentAsync(GameDbContext db, SocialClient social, AiPostCache aiCache, GameEngineOptions settings, DateTime now, CancellationToken ct)
     {
         if (Random.Shared.NextDouble() < settings.AmbientPostChance)
         {
+            // Phase 2: prefer a fresh AI-generated troll post; fall back to the static library when none is cached.
+            var content = aiCache.TryTake() ?? ContentLibrary.Pick(ContentLibrary.AmbientPosts);
             await social.CreatePostAsync(
                 ContentLibrary.Pick(ContentLibrary.BotAuthors),
-                ContentLibrary.Pick(ContentLibrary.AmbientPosts),
+                content,
                 isTrending: false,
                 ct);
         }
