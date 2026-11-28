@@ -1,0 +1,36 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+
+  <!--
+    Feasibility spike (PHASE3 §7). One ASP.NET host that REUSES the existing services by project
+    reference (no code copied) and composes their public extension methods into a single process.
+    Goal: prove that the Sdk.Web service projects can be referenced and merged, and that the whole
+    thing runs on SQLite. The Docker/browser build (src/* as separate services) is untouched.
+  -->
+
+  <PropertyGroup>
+    <!-- The referenced service projects are themselves Sdk.Web (each has its own top-level Program/Main).
+         Only this project is the entry point; theirs are never invoked. If the build complains about a
+         duplicate entry point, the documented fallback is to extract each service's endpoints into a
+         *.Endpoints library — see PHASE3 §7. -->
+    <AssemblyName>TrollNet.DesktopHost</AssemblyName>
+    <RootNamespace>TrollNet.DesktopHost</RootNamespace>
+    <!-- The referenced service projects each ship an appsettings.json, which collide in the publish output
+         (NETSDK1152). They are harmless here — the sidecar is configured via environment variables, and the
+         dev build loads the host's own appsettings.json from disk — so allow the duplicates. -->
+    <ErrorOnDuplicatePublishOutputFiles>false</ErrorOnDuplicatePublishOutputFiles>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- Reuse the real services. Transitively pulls in TrollNet.Shared. -->
+    <ProjectReference Include="..\..\src\Services\AuthService\AuthService.csproj" />
+    <ProjectReference Include="..\..\src\Services\SocialService\SocialService.csproj" />
+    <ProjectReference Include="..\..\src\Services\GameService\GameService.csproj" />
+    <ProjectReference Include="..\..\src\Services\AiService\AiService.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- Desktop DB: SQLite instead of PostgreSQL. Same EF Core version as the Npgsql provider (10.0.0). -->
+    <PackageReference Include="Microsoft.EntityFrameworkCore.Sqlite" Version="10.0.0" />
+  </ItemGroup>
+
+</Project>

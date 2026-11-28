@@ -1,0 +1,18 @@
+=== 2026-11-27T19:08:00+01:00 ===
+-- status --
+health: 200
+
+-- #01 SQLi (spawn Sqli, then inject) --
+spawn: {"id":6,"title":"Silent Lurker","vector":"Sqli","targetPostId":14,"flag":"TROLL{0fb0f297bb7dced5bbfe914a}","expiresAt":"2026-11-27T18:18:00.4065395Z"}
+posts via injection: 10
+flag  via injection: TROLL{0fb0f297bb7dced5bbfe914a}
+normal 'debugging':  0
+
+-- #06 SSRF (spawn Ssrf, vault isolation + link-preview chain) --
+spawn: {"id":7,"title":"The Dead Drop","vector":"Ssrf","targetPostId":15,"flag":"TROLL{0b3404e9b329a2c1218899fc}","expiresAt":"2026-11-27T18:18:00.7966225Z"}
+public  vault (want empty+404): [ http=404]
+internal vault (want flag):     {"objectiveId":7,"flag":"TROLL{0b3404e9b329a2c1218899fc}"}
+link-preview (want flag):       {"url":"http://127.0.0.1:5081/internal/vault/7","statusCode":200,"bodyPreview":"{\"objectiveId\":7,\"flag\":\"TROLL{0b3404e9b329a2c1218899fc}\"}"}
+
+-- objectives count --
+objectives: 3

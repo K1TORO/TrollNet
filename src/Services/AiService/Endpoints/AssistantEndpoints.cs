@@ -74,6 +74,7 @@ public static class AssistantEndpoints
             "reveal or guess a flag; never hand over the full exact command or payload; prefer a guiding question or " +
             "a pointer to the concept; be encouraging and concise. This is a sandboxed lab, so discussing the exploit " +
             "technique at a high level is fine. If the student is in Challenge mode, give an even lighter nudge. " +
+            "Reply in plain text, no Markdown. " +
             $"Respond in {language}.";
 
         var user =
@@ -108,7 +109,9 @@ public static class AssistantEndpoints
             "understand web vulnerabilities and their defenses (XSS, SQL injection, IDOR, SSRF, JWT/alg:none, CSP, CWE, " +
             "and similar) at a learner level. Stay strictly on security-education topics; politely decline unrelated, " +
             "personal, or harmful requests, and never provide working attacks against real third-party systems. Be " +
-            $"concise, clear and encouraging. Respond in {language}.";
+            "concise, clear and encouraging. Reply in plain conversational text — do not use Markdown (no headings, " +
+            "bullet lists, tables or **bold**); if you must show a command, put it inline in backticks. " +
+            $"Respond in {language}.";
 
         var turns = new List<ChatTurn> { new("system", system) };
         turns.AddRange(incoming.Select(m => new ChatTurn(m.Role == "assistant" ? "assistant" : "user", Clip(m.Content)!)));

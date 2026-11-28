@@ -139,8 +139,10 @@ public static class GameEndpoints
         var items = objectives.Select(o => new ObjectiveDto(
             o.Id, o.Title, o.Description, o.Category, o.TipId, o.Vector.ToString(), o.Difficulty, o.Points, o.TargetPostId,
             o.CreatedAt, o.ExpiresAt, o.IsCompleted, o.CompletedByUsername,
-            // VULN-SPOT #15: only the DataLeak objective still exposes its flag here.
-            o.Vector == FlagVector.DataLeak ? o.Flag : null,
+            // VULN-SPOT #15: only the DataLeak objective leaks its flag here — and only while it is still
+            // active (uncaptured), so a completed objective stops exposing a now-useless key that would
+            // otherwise confuse players about which task a leaked flag belongs to.
+            o.Vector == FlagVector.DataLeak && !o.IsCompleted ? o.Flag : null,
             failed.Contains(o.Id))).ToList();
 
         return Results.Ok(items);

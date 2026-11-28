@@ -41,16 +41,16 @@ export function AiTutor() {
     }
   }
 
-  if (!open) {
-    return (
-      <button className="ai-toggle" onClick={() => setOpen(true)}>
-        🔮 {L('Wyrocznia', 'Oracle')}
-      </button>
-    );
-  }
-
+  // Keep the panel mounted (just hidden) when closed, so messages — and the last reply's finished typing
+  // animation — persist instead of replaying every time the Oracle is reopened.
   return (
-    <aside className="ai-panel" aria-label={L('Wyrocznia', 'Oracle')}>
+    <>
+      {!open && (
+        <button className="ai-toggle" onClick={() => setOpen(true)}>
+          🔮 {L('Wyrocznia', 'Oracle')}
+        </button>
+      )}
+      <aside className="ai-panel" aria-label={L('Wyrocznia', 'Oracle')} style={{ display: open ? undefined : 'none' }}>
       <div className="ai-header">
         <span className="ai-title">🔮 {L('Wyrocznia — bezpieczeństwo', 'The Oracle — security')}</span>
         <button className="link small" onClick={() => setOpen(false)} aria-label={L('Ukryj', 'Hide')}>
@@ -91,6 +91,7 @@ export function AiTutor() {
           {L('Wyślij', 'Send')}
         </button>
       </form>
-    </aside>
+      </aside>
+    </>
   );
 }

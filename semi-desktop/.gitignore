@@ -1,0 +1,21 @@
+# Large / generated artifacts — fetched or built by the scripts, not source.
+# (Comments must be on their own line; an inline "# ..." becomes part of the pattern.)
+
+# qwen GGUF (~1.9 GB), downloaded by fetch-model.sh
+model/
+
+# llama.cpp binaries + libs, downloaded by fetch-model.sh
+runtime/
+
+# self-contained .NET host sidecar, published by build-host-sidecar.sh
+app/src-tauri/binaries/
+
+# Rust build output + bundles (.deb/.AppImage/.exe)
+app/src-tauri/target/
+
+# Tauri generated schemas
+app/src-tauri/gen/
+
+# .NET build output
+host/bin/
+host/obj/

@@ -1,0 +1,26 @@
+TrollNet — opis funkcjonalności
+
+TrollNet to aplikacja desktopowa do nauki bezpieczeństwa webowego w praktyce.
+Pokazuje małą sieć społecznościową, w której popularne posty to zadania typu
+capture-the-flag (CTF) z limitem czasu. Gracz wykorzystuje prawdziwą podatność
+w zadaniu — m.in. wstrzyknięcie SQL, trwały XSS, IDOR, SSRF czy błędną weryfikację
+tokenu JWT — aby zdobyć flagę, zanim moderator zamknie post. Każda podatność ma
+prostą wskazówkę, gotowe polecenie i wbudowany terminal, więc początkujący w kilka
+minut przechodzi od teorii do bezpiecznego wykonania ataku. Tryb Edukacja uczy
+z podpowiedziami, tryb Wyzwanie punktuje rywalizacyjnie.
+
+W aplikacji działa lokalny asystent AI. Daje krótkie podpowiedzi kierujące do
+właściwej techniki (nigdy nie podaje gotowej flagi) i odpowiada na pytania
+o bezpieczeństwo. Model działa w całości na komputerze użytkownika,
+obsługiwany przez wbudowany llama.cpp — bez internetu, więc nic, co zostanie wpisane,
+nie opuszcza komputera. Ten sam model generuje też treści w postach. Gdy modelu
+brakuje, aplikacja używa prostszego asystenta heurystycznego.
+
+
+Cały system — backend (logowanie, feed, silnik gry) na bazie SQLite, interfejs
+webowy oraz lokalny serwer AI — jest zapakowany w jedną aplikację desktopową
+(Tauri; pliki .deb i .AppImage). Bez Dockera, bez osobnego środowiska .NET, bez chmury.
+
+TrollNet to aplikacja edukacyjna z lokalnym AI dbającym o prywatność. Uczy realnej,
+poszukiwanej umiejętności w praktyce, używa lokalnego modelu językowego jako
+nauczyciela. Instaluje się i działa offline w jednym kroku.

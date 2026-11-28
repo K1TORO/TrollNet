@@ -67,7 +67,13 @@ public static class PostEndpoints
         //   So `' OR 1=1 --` dumps every post together with the hidden flag stored in SystemNote (#01 objective).
         //   Try: /api/posts/search?query=' OR 1=1 --
         //   Fix: EF.Functions.ILike(p.Content, $"%{escaped}%", @"\") with a bound parameter, and return PostDto.
-        var sql = $"SELECT * FROM \"Posts\" WHERE \"Content\" ILIKE '%{term}%' ORDER BY \"CreatedAt\" DESC";
+        //   Provider note: the injection is identical on both backends; only the case-insensitive LIKE operator
+        //   differs. Postgres has ILIKE; SQLite (desktop build) has no ILIKE but its LIKE is case-insensitive for
+        //   ASCII, so it matches the same intent. This keeps the raw-concatenation vuln on both providers.
+        var likeOperator = (db.Database.ProviderName?.Contains("Npgsql", StringComparison.OrdinalIgnoreCase) ?? false)
+            ? "ILIKE"
+            : "LIKE";
+        var sql = $"SELECT * FROM \"Posts\" WHERE \"Content\" {likeOperator} '%{term}%' ORDER BY \"CreatedAt\" DESC";
         var items = await db.Posts.FromSqlRaw(sql).AsNoTracking().ToListAsync(ct);
 
         return Results.Ok(items);
